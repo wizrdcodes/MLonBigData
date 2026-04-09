@@ -1,0 +1,558 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Week 6 Portfolio Submission</title>
+  <style>
+    body { font-family: -apple-system, system-ui, Segoe UI, Roboto, Arial; margin: 24px; }
+    pre { background: #f6f8fa; padding: 12px; overflow-x: auto; border: 1px solid #ddd; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New"; }
+    h2 { margin-top: 28px; }
+  </style>
+</head>
+<body>
+  <h1>Week 6 Portfolio Exercise</h1>
+
+  <h2>Code</h2>
+  <pre><code>from sklearn.datasets import fetch_20newsgroups
+from pyspark.sql import SparkSession
+from pyspark.ml.feature import (Tokenizer, HashingTF, IDF, StringIndexer,
+                                StopWordsRemover)
+from pyspark.ml.classification import LogisticRegression
+from pyspark.ml.evaluation import MulticlassClassificationEvaluator
+from pyspark.ml import Pipeline
+from pyspark.ml.feature import Word2Vec
+from pyspark.sql.functions import udf, col
+from pyspark.sql.types import ArrayType, StringType
+from nltk.stem import PorterStemmer, WordNetLemmatizer
+import pandas as pd
+import numpy as np
+from src.mlonbigdata import show_df
+
+dataframe = 1 # 1 = show dataframe, 0 = hide dataframe
+show_dataframes = (dataframe == 1)
+
+# Start Spark Session
+spark = SparkSession.builder.appName(&quot;DocumentClassification&quot;).getOrCreate()
+
+# Fetch 20 Newsgroups Data
+newsgroups = fetch_20newsgroups(subset=&#x27;all&#x27;)
+
+# Convert the dataset to a DataFrame for PySpark processing
+data = pd.DataFrame({&#x27;text&#x27;: newsgroups.data, &#x27;category&#x27;: newsgroups.target})
+df = spark.createDataFrame(data)
+if show_dataframes: show_df(df, rows=5, truncate=50, print_str=&quot;20 Newsgroups Data:&quot;)
+
+# Show some details about the data
+print(f&quot;Total number of documents: {len(newsgroups.data)}&quot;)
+print(f&quot;Categories: {newsgroups.target_names}&quot;)
+print(f&quot;Number of categories: {len(newsgroups.target_names)}&quot;)
+
+# Display the distribution of categories
+if show_dataframes: show_df(df.groupBy(&#x27;category&#x27;).count(), rows=20, truncate=50,
+                            print_str=&quot;Category Distribution:&quot;)
+
+# Filter 25% of documents from each category
+fractions = {i: 0.25 for i in range(len(newsgroups.target_names))}
+df_sampled = df.sampleBy(&quot;category&quot;, fractions=fractions, seed=42)
+if show_dataframes: show_df(df_sampled, rows=5, truncate=50,
+                            print_str=&quot;\n25% of each category of Newsgroups:&quot;)
+
+# Show the number of documents after sampling
+print(f&quot;Total number of documents after sampling: {df_sampled.count()}&quot;)
+if show_dataframes: show_df(df_sampled.groupBy(&#x27;category&#x27;).count(), rows=20, truncate=50,
+                            print_str=&quot;Category Distribution after sampling:&quot;)
+
+# Prepare for Document Classification
+
+# Step 1: Define Tokenizer
+tokenizer = Tokenizer(inputCol=&quot;text&quot;, outputCol=&quot;words&quot;)
+
+# Step 2: Define HashingTF
+hashingTF = HashingTF(inputCol=&quot;words&quot;, outputCol=&quot;raw_features&quot;, numFeatures=1000)
+
+# Step 3: Define IDF (Inverse Document Frequency)
+idf = IDF(inputCol=&quot;raw_features&quot;, outputCol=&quot;features&quot;)
+
+# Step 4: Define Indexer
+indexer = StringIndexer(inputCol=&quot;category&quot;, outputCol=&quot;label&quot;)
+
+# Step 5: Define classifier (Logistic Regression)
+lr = LogisticRegression(featuresCol=&quot;features&quot;, labelCol=&quot;label&quot;)
+
+# Set up pipeline with stages
+pipeline = Pipeline(stages=[tokenizer, hashingTF, idf, indexer, lr])
+
+# Split data into training and testing sets (80% train, 20% test)
+train_data, test_data = df_sampled.randomSplit([0.8, 0.2], seed=42)
+
+# Step 6: Train the model using the pipeline
+model = pipeline.fit(train_data)
+
+# Step 7: Make predictions on the test data
+predictions = model.transform(test_data)
+
+# Show predictions
+show_df(predictions, &#x27;text&#x27;, &#x27;category&#x27;, &#x27;prediction&#x27;, rows=5, truncate=50,
+                print_str=&quot;\nPredictions (selected columns):&quot;)
+# show_df(predictions, rows=5, truncate=50, print_str=&quot;\nPredictions DF:&quot;)
+
+# Step 8: Evaluate the model&#x27;s accuracy
+evaluator = MulticlassClassificationEvaluator(labelCol=&quot;label&quot;,
+                        predictionCol=&quot;prediction&quot;, metricName=&quot;accuracy&quot;)
+accuracy = evaluator.evaluate(predictions)
+
+# Display the accuracy
+print(f&quot;Model Accuracy: {accuracy:.2f}&quot;)
+
+# Apply the pipeline to the sampled data (df_sampled) to get the &#x27;features&#x27;
+# column (TF-IDF vectors)
+processed_data = model.transform(df_sampled)
+
+# Extract the &quot;features&quot; column as an RDD
+tdm_rdd = processed_data.select(&quot;features&quot;).rdd.map(lambda row: row[0])
+
+# Convert the RDD of vectors into a numpy array
+tdm_array = np.array(tdm_rdd.collect())
+
+# Convert the numpy array into a DataFrame (this is our Term-Document Matrix)
+tdm_df = pd.DataFrame(tdm_array)
+
+# Show the Term-Document Matrix (first few rows)
+print(&quot;Term-Document Matrix (TDM):&quot;)
+print(tdm_df.head())
+
+# Word2Vec
+stemmer = PorterStemmer()
+lemmatizer = WordNetLemmatizer()
+
+def stem_words(words):
+    return [stemmer.stem(word) for word in words]
+
+def lemmatize_words(words):
+    return [lemmatizer.lemmatize(word) for word in words]
+
+stem_udf = udf(stem_words, ArrayType(StringType()))
+lemma_udf = udf(lemmatize_words, ArrayType(StringType()))
+
+# df processing
+df_labeled = indexer.fit(df_sampled).transform(df_sampled)
+df_tokenized = tokenizer.transform(df_labeled) # tokenizer already defined above
+remover = StopWordsRemover(inputCol=&quot;words&quot;, outputCol=&quot;filtered_words&quot;) # not yet defined
+df_filtered = remover.transform(df_tokenized)
+df_stemmed = df_filtered.withColumn(&quot;stemmed_words&quot;, stem_udf(col(&quot;filtered_words&quot;)))
+df_lemmatized = df_stemmed.withColumn(&quot;lemmatized_words&quot;, lemma_udf(col(&quot;filtered_words&quot;)))
+
+df_process = [
+    (&quot;df_tokenized&quot;, df_tokenized), (&quot;df_filtered&quot;, df_filtered), (&quot;df_stemmed&quot;, df_stemmed),
+    (&quot;df_lemmatized&quot;, df_lemmatized),]
+for name, df in df_process:
+    if show_dataframes: show_df(df, rows=5, truncate=50, print_str=f&quot;{name}:&quot;)
+
+word2Vec = Word2Vec(vectorSize=25, minCount=2, seed=42,
+                    inputCol=&quot;lemmatized_words&quot;, outputCol=&quot;featuresW2Vector&quot;)
+word2Vec_model = word2Vec.fit(df_lemmatized)
+df_w2v = word2Vec_model.transform(df_lemmatized)
+if show_dataframes:
+    show_df(df_w2v, &#x27;text&#x27;, &#x27;featuresW2Vector&#x27;, truncate=50, print_str=&quot;\nWord2Vec Features:&quot;)
+    # show_df(df_w2v, truncate=100, print_str=&quot;\nWord2Vec Features:&quot;)
+
+train_data_w2v, test_data_w2v = df_w2v.randomSplit([0.8, 0.2], seed=42)
+
+# Train Model
+lr_w2v = LogisticRegression(featuresCol=&quot;featuresW2Vector&quot;, labelCol=&quot;label&quot;)
+lr_w2v_model = lr_w2v.fit(train_data_w2v)
+
+# Predictions
+predictions_w2v = lr_w2v_model.transform(test_data_w2v)
+show_df(predictions_w2v, &#x27;text&#x27;, &#x27;category&#x27;, &#x27;prediction&#x27;, rows=10, truncate=50,
+        print_str=&quot;\nWord2Vec Predictions:&quot;)
+
+# Evaluate Model Accuracy
+accuracy_w2v = evaluator.evaluate(predictions_w2v)
+
+# Compare accuracy of word2vec and logistic regression
+print(f&quot;Logistic Regression Accuracy: {accuracy:.2f}&quot;)
+print(f&quot;Word2Vec Accuracy: {accuracy_w2v:.2f}&quot;)
+
+</code></pre>
+
+  <h2>Helper Modules (src/mlonbigdata)</h2><h3>/Users/wizrdm/PycharmProjects/MLonBigData/src/mlonbigdata/paths.py</h3><pre><code>from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]  # .../src/mlonbigdata -&gt; project root
+
+def outputs_week_plots(week: int) -&gt; str:
+    return (PROJECT_ROOT / &quot;outputs&quot; / f&quot;week{week}&quot; / &quot;plots&quot;).as_posix()
+
+</code></pre><h3>/Users/wizrdm/PycharmProjects/MLonBigData/src/mlonbigdata/plotting.py</h3><pre><code>import os
+import matplotlib.pyplot as plt
+
+def title_xy_labels(title, xlabel, ylabel):
+    plt.title(title)
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+
+def next_plot_path(base=&quot;plot&quot;, folder=&quot;plots&quot;, ext=&quot;png&quot;):
+    os.makedirs(folder, exist_ok=True)
+    i = 1
+    while True:
+        name = f&quot;{base}_{i:03d}.{ext}&quot;
+        path = os.path.join(folder, name)
+        if not os.path.exists(path):
+            return path
+        i += 1
+
+def show_tight_layout(show=True, save=True, folder=&quot;plots&quot;):
+    &quot;&quot;&quot;
+    show=True: display the plot window (or inline in notebooks)
+    save=True: save a numbered plot into folder/
+    &quot;&quot;&quot;
+    plt.tight_layout()
+    if save:
+        plt.savefig(
+            next_plot_path(folder=folder), dpi=200, bbox_inches=&quot;tight&quot;)
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
+</code></pre><h3>/Users/wizrdm/PycharmProjects/MLonBigData/src/mlonbigdata/spark_utils.py</h3><pre><code>from functools import reduce
+from pyspark.sql import DataFrame, functions as F
+from pyspark.sql.functions import col, count, when, isnan, lit, sum as spark_sum
+from pyspark.sql.types import NumericType
+from pyspark.ml.functions import vector_to_array
+
+def _is_numeric(df, c: str) -&gt; bool:
+    &quot;&quot;&quot;Return True if column c is numeric (so isnan() is valid).&quot;&quot;&quot;
+    return isinstance(df.schema[c].dataType, NumericType)
+
+def show_df(df, *cols, rows=5, print_str=False, truncate=True, distinct=False):
+    &quot;&quot;&quot;Show a DataFrame, optionally with a header.
+    Set print_str=True to print the header.
+    Pass .select() for select columns.&quot;&quot;&quot;
+    if print_str:
+        if print_str is True:
+            print(f&quot;Showing dataframe: &quot;)
+        else:
+            print(print_str)
+    if cols:
+        out = df.select(*cols)
+    else:
+        out = df
+    if distinct:
+        out = out.distinct()
+    out.show(rows, truncate=truncate)
+
+def describe_df(df, *cols, num_rows=5, print_str=False, truncate=True):
+    &quot;&quot;&quot;Show a description of a DataFrame, optionally with a header.
+    Pass .select() for select columns.
+    Output includes summary statistics for numeric columns.&quot;&quot;&quot;
+    if print_str:
+        print(f&quot;Describing dataframe: &quot;)
+    if cols:
+        df.describe(*cols).show(num_rows, truncate=truncate)
+    else:
+        df.describe().show(num_rows, truncate=truncate)
+
+def show_df_stats(df, print_str=False):
+    if print_str:
+        print(f&quot;Showing dataframe stats: &quot;)
+    print(f&quot;Number of columns: {len(df.columns)}, Number of rows: {df.count()}&quot;)
+    print(f&quot;Number of partitions: {df.rdd.getNumPartitions()}&quot;)
+    print(f&quot;Summary stats:&quot;)
+    df.summary().show()
+
+def show_x_decimals(
+    df: DataFrame,
+    decimals: int = 2,
+    cols: list[str] | None = None,
+    n: int = 20,
+    truncate: bool | int = True,
+    vertical: bool = False,
+):
+    &quot;&quot;&quot;
+    Display a Spark DataFrame with numeric columns rounded to `decimals`.
+    Safety:
+    - Leaves non-numeric columns (string/boolean/date/timestamp/struct/array/etc.) unchanged.
+    - Leaves nulls intact.
+    - Leaves NaNs intact (Spark round(NaN) -&gt; NaN).
+    - Does not mutate the original df.
+    - If `cols` is provided, rounds only those columns *that are numeric*; non-numeric cols in
+      `cols` are left unchanged (no error).
+    &quot;&quot;&quot;
+    if decimals &lt; 0:
+        raise ValueError(&quot;decimals must be &gt;= 0&quot;)
+
+    # Map column -&gt; dataType for quick checks
+    dtype_map = {f.name: f.dataType for f in df.schema.fields}
+
+    if cols is None:
+        cols_to_round = [c for c, dt in dtype_map.items() if isinstance(dt, NumericType)]
+    else:
+        missing = [c for c in cols if c not in dtype_map]
+        if missing:
+            raise ValueError(f&quot;Columns not in DataFrame: {missing}&quot;)
+        # Only round the numeric ones; ignore non-numeric safely
+        cols_to_round = [c for c in cols if isinstance(dtype_map[c], NumericType)]
+
+    exprs = []
+    for c in df.columns:
+        if c in cols_to_round:
+            # round() safely preserves nulls/NaNs. Non-numeric never reaches here.
+            exprs.append(F.round(F.col(c), decimals).alias(c))
+        else:
+            exprs.append(F.col(c))
+
+    df.select(*exprs).show(n=n, truncate=truncate, vertical=vertical)
+
+def show_vector_x_decimals(
+    df: DataFrame,
+    vector_cols: str | list[str],
+    decimals: int = 2,
+    n: int = 20,
+    truncate: bool | int = True,
+):
+    &quot;&quot;&quot;
+    Display one or more vector columns as rounded arrays for readability.
+
+    - vector_cols can be a single column name or a list of column names.
+    - Leaves the original df unchanged.
+    - null vectors stay null; NaNs inside vectors remain NaN.
+    &quot;&quot;&quot;
+    if isinstance(vector_cols, str):
+        vector_cols = [vector_cols]
+
+    missing = [c for c in vector_cols if c not in df.columns]
+    if missing:
+        raise ValueError(f&quot;Vector columns not in DataFrame: {missing}&quot;)
+
+    exprs = []
+    for c in vector_cols:
+        arr_col = vector_to_array(F.col(c))
+        rounded_arr = F.transform(arr_col, lambda x: F.round(x, decimals))
+        exprs.append(rounded_arr.alias(f&quot;{c}_rounded&quot;))
+
+    df.select(*exprs).show(n=n, truncate=truncate)
+
+def show_null_counts(df, num_rows=5):
+    # Count missing values per column:
+    # - for numeric cols: null OR NaN
+    # - for non-numeric cols: null only
+    exprs = []
+    for c in df.columns:
+        if _is_numeric(df, c):
+            missing = col(c).isNull() | isnan(col(c))
+        else:
+            missing = col(c).isNull()
+        exprs.append(count(when(missing, lit(1))).alias(c))
+
+    df.select(exprs).show(num_rows, truncate=False)
+
+def show_null_rows(df, num_rows=5):
+    # Show rows where ANY column is missing:
+    # - numeric cols: null OR NaN
+    # - non-numeric cols: null only
+    conditions = []
+    for c in df.columns:
+        if _is_numeric(df, c):
+            conditions.append(col(c).isNull() | isnan(col(c)))
+        else:
+            conditions.append(col(c).isNull())
+
+    if not conditions:
+        print(&quot;No columns found; cannot check for missing values.&quot;)
+        return
+
+    missing_any_col = reduce(lambda a, b: a | b, conditions)
+    df.filter(missing_any_col).show(num_rows, truncate=False)
+
+def agg_sum(df, group_cols, sums: dict):
+    &quot;&quot;&quot;
+        sums: {&quot;source_col_name&quot;: &quot;alias_name&quot;, ...}
+        &quot;&quot;&quot;
+    exprs = [spark_sum(src).alias(alias) for src, alias in sums.items()]
+    return df.groupBy(*group_cols).agg(*exprs)
+    # older, specific version:
+    # return df.groupBy(*cols).agg(
+    #     spark_sum(&quot;arr_flights&quot;).alias(&quot;total_flights&quot;),
+    #     spark_sum(&quot;arr_del15&quot;).alias(&quot;total_delays_15&quot;),
+    # )
+
+</code></pre>
+
+  <h2>Outputs (stdout)</h2>
+  <pre><code>20 Newsgroups Data:
++--------------------------------------------------+--------+
+|                                              text|category|
++--------------------------------------------------+--------+
+|From: Mamatha Devineni Ratnam &lt;mr47+@andrew.cmu...|      10|
+|From: mblawson@midway.ecn.uoknor.edu (Matthew B...|       3|
+|From: hilmi-er@dsv.su.se (Hilmi Eren)\nSubject:...|      17|
+|From: guyd@austin.ibm.com (Guy Dawson)\nSubject...|       3|
+|From: Alexander Samuel McDiarmid &lt;am2o+@andrew....|       4|
++--------------------------------------------------+--------+
+only showing top 5 rows
+Total number of documents: 18846
+Categories: [&#x27;alt.atheism&#x27;, &#x27;comp.graphics&#x27;, &#x27;comp.os.ms-windows.misc&#x27;, &#x27;comp.sys.ibm.pc.hardware&#x27;, &#x27;comp.sys.mac.hardware&#x27;, &#x27;comp.windows.x&#x27;, &#x27;misc.forsale&#x27;, &#x27;rec.autos&#x27;, &#x27;rec.motorcycles&#x27;, &#x27;rec.sport.baseball&#x27;, &#x27;rec.sport.hockey&#x27;, &#x27;sci.crypt&#x27;, &#x27;sci.electronics&#x27;, &#x27;sci.med&#x27;, &#x27;sci.space&#x27;, &#x27;soc.religion.christian&#x27;, &#x27;talk.politics.guns&#x27;, &#x27;talk.politics.mideast&#x27;, &#x27;talk.politics.misc&#x27;, &#x27;talk.religion.misc&#x27;]
+Number of categories: 20
+Category Distribution:
++--------+-----+
+|category|count|
++--------+-----+
+|      19|  628|
+|       0|  799|
+|       7|  990|
+|       6|  975|
+|       9|  994|
+|      17|  940|
+|       5|  988|
+|       1|  973|
+|      10|  999|
+|       3|  982|
+|      12|  984|
+|       8|  996|
+|      11|  991|
+|       2|  985|
+|       4|  963|
+|      13|  990|
+|      18|  775|
+|      14|  987|
+|      15|  997|
+|      16|  910|
++--------+-----+
+25% of each category of Newsgroups:
++--------------------------------------------------+--------+
+|                                              text|category|
++--------------------------------------------------+--------+
+|From: dchhabra@stpl.ists.ca (Deepak Chhabra)\nS...|      10|
+|From: csulo@csv.warwick.ac.uk (Mr M J Brown)\nS...|      12|
+|From: pmetzger@snark.shearson.com (Perry E. Met...|      11|
+|Subject: Re: BD&#x27;s did themselves--you&#x27;re all pa...|      16|
+|From: Geoffrey_Hansen@mindlink.bc.ca (Geoffrey ...|       1|
++--------------------------------------------------+--------+
+only showing top 5 rows
+Total number of documents after sampling: 4710
+Category Distribution after sampling:
++--------+-----+
+|category|count|
++--------+-----+
+|      19|  156|
+|       0|  189|
+|       7|  265|
+|       6|  239|
+|       9|  231|
+|      17|  206|
+|       5|  212|
+|       1|  261|
+|      10|  254|
+|       3|  260|
+|      12|  255|
+|       8|  259|
+|      11|  237|
+|       2|  254|
+|       4|  245|
+|      13|  260|
+|      18|  180|
+|      14|  255|
+|      15|  255|
+|      16|  237|
++--------+-----+
+Predictions (selected columns):
++--------------------------------------------------+--------+----------+
+|                                              text|category|prediction|
++--------------------------------------------------+--------+----------+
+|From: &quot;UTADNX::UTDSSA::GREER&quot;@utspan.span.nasa....|      14|       4.0|
+|From: CONRADIE@firga.sun.ac.za (Gerrit Conradie...|      12|       5.0|
+|From: Clinton-HQ@Campaign92.Org (Clinton/Gore &#x27;...|      18|       4.0|
+|From: Lauger@ssdgwy.mdc.com (John Lauger)\nSubj...|      13|       2.0|
+|From: aap@wam.umd.edu (Alberto Adolfo Pinkas)\n...|      17|      17.0|
++--------------------------------------------------+--------+----------+
+only showing top 5 rows
+Model Accuracy: 0.54
+Term-Document Matrix (TDM):
+        0    1         2    3    ...       996     997  998       999
+0  0.000000  0.0  1.889091  0.0  ...  0.000000  0.0000  0.0  2.515944
+1  0.000000  0.0  0.000000  0.0  ...  0.000000  0.0000  0.0  0.000000
+2  0.000000  0.0  0.000000  0.0  ...  0.000000  2.3779  0.0  0.000000
+3  1.935862  0.0  0.000000  0.0  ...  1.637191  0.0000  0.0  0.000000
+4  0.000000  0.0  0.000000  0.0  ...  0.000000  0.0000  0.0  0.000000
+[5 rows x 1000 columns]
+df_tokenized:
++--------------------------------------------------+--------+-----+--------------------------------------------------+
+|                                              text|category|label|                                             words|
++--------------------------------------------------+--------+-----+--------------------------------------------------+
+|From: dchhabra@stpl.ists.ca (Deepak Chhabra)\nS...|      10|  8.0|[from:, dchhabra@stpl.ists.ca, (deepak, chhabra...|
+|From: csulo@csv.warwick.ac.uk (Mr M J Brown)\nS...|      12|  5.0|[from:, csulo@csv.warwick.ac.uk, (mr, m, j, bro...|
+|From: pmetzger@snark.shearson.com (Perry E. Met...|      11| 12.0|[from:, pmetzger@snark.shearson.com, (perry, e....|
+|Subject: Re: BD&#x27;s did themselves--you&#x27;re all pa...|      16| 13.0|[subject:, re:, bd&#x27;s, did, themselves--you&#x27;re, ...|
+|From: Geoffrey_Hansen@mindlink.bc.ca (Geoffrey ...|       1|  1.0|[from:, geoffrey_hansen@mindlink.bc.ca, (geoffr...|
++--------------------------------------------------+--------+-----+--------------------------------------------------+
+only showing top 5 rows
+df_filtered:
++--------------------------------------------------+--------+-----+--------------------------------------------------+--------------------------------------------------+
+|                                              text|category|label|                                             words|                                    filtered_words|
++--------------------------------------------------+--------+-----+--------------------------------------------------+--------------------------------------------------+
+|From: dchhabra@stpl.ists.ca (Deepak Chhabra)\nS...|      10|  8.0|[from:, dchhabra@stpl.ists.ca, (deepak, chhabra...|[from:, dchhabra@stpl.ists.ca, (deepak, chhabra...|
+|From: csulo@csv.warwick.ac.uk (Mr M J Brown)\nS...|      12|  5.0|[from:, csulo@csv.warwick.ac.uk, (mr, m, j, bro...|[from:, csulo@csv.warwick.ac.uk, (mr, m, j, bro...|
+|From: pmetzger@snark.shearson.com (Perry E. Met...|      11| 12.0|[from:, pmetzger@snark.shearson.com, (perry, e....|[from:, pmetzger@snark.shearson.com, (perry, e....|
+|Subject: Re: BD&#x27;s did themselves--you&#x27;re all pa...|      16| 13.0|[subject:, re:, bd&#x27;s, did, themselves--you&#x27;re, ...|[subject:, re:, bd&#x27;s, themselves--you&#x27;re, paran...|
+|From: Geoffrey_Hansen@mindlink.bc.ca (Geoffrey ...|       1|  1.0|[from:, geoffrey_hansen@mindlink.bc.ca, (geoffr...|[from:, geoffrey_hansen@mindlink.bc.ca, (geoffr...|
++--------------------------------------------------+--------+-----+--------------------------------------------------+--------------------------------------------------+
+only showing top 5 rows
+df_stemmed:
++--------------------------------------------------+--------+-----+--------------------------------------------------+--------------------------------------------------+--------------------------------------------------+
+|                                              text|category|label|                                             words|                                    filtered_words|                                     stemmed_words|
++--------------------------------------------------+--------+-----+--------------------------------------------------+--------------------------------------------------+--------------------------------------------------+
+|From: dchhabra@stpl.ists.ca (Deepak Chhabra)\nS...|      10|  8.0|[from:, dchhabra@stpl.ists.ca, (deepak, chhabra...|[from:, dchhabra@stpl.ists.ca, (deepak, chhabra...|[from:, dchhabra@stpl.ists.ca, (deepak, chhabra...|
+|From: csulo@csv.warwick.ac.uk (Mr M J Brown)\nS...|      12|  5.0|[from:, csulo@csv.warwick.ac.uk, (mr, m, j, bro...|[from:, csulo@csv.warwick.ac.uk, (mr, m, j, bro...|[from:, csulo@csv.warwick.ac.uk, (mr, m, j, bro...|
+|From: pmetzger@snark.shearson.com (Perry E. Met...|      11| 12.0|[from:, pmetzger@snark.shearson.com, (perry, e....|[from:, pmetzger@snark.shearson.com, (perry, e....|[from:, pmetzger@snark.shearson.com, (perri, e....|
+|Subject: Re: BD&#x27;s did themselves--you&#x27;re all pa...|      16| 13.0|[subject:, re:, bd&#x27;s, did, themselves--you&#x27;re, ...|[subject:, re:, bd&#x27;s, themselves--you&#x27;re, paran...|[subject:, re:, bd&#x27;, themselves--you&#x27;r, paranoi...|
+|From: Geoffrey_Hansen@mindlink.bc.ca (Geoffrey ...|       1|  1.0|[from:, geoffrey_hansen@mindlink.bc.ca, (geoffr...|[from:, geoffrey_hansen@mindlink.bc.ca, (geoffr...|[from:, geoffrey_hansen@mindlink.bc.ca, (geoffr...|
++--------------------------------------------------+--------+-----+--------------------------------------------------+--------------------------------------------------+--------------------------------------------------+
+only showing top 5 rows
+df_lemmatized:
++--------------------------------------------------+--------+-----+--------------------------------------------------+--------------------------------------------------+--------------------------------------------------+--------------------------------------------------+
+|                                              text|category|label|                                             words|                                    filtered_words|                                     stemmed_words|                                  lemmatized_words|
++--------------------------------------------------+--------+-----+--------------------------------------------------+--------------------------------------------------+--------------------------------------------------+--------------------------------------------------+
+|From: dchhabra@stpl.ists.ca (Deepak Chhabra)\nS...|      10|  8.0|[from:, dchhabra@stpl.ists.ca, (deepak, chhabra...|[from:, dchhabra@stpl.ists.ca, (deepak, chhabra...|[from:, dchhabra@stpl.ists.ca, (deepak, chhabra...|[from:, dchhabra@stpl.ists.ca, (deepak, chhabra...|
+|From: csulo@csv.warwick.ac.uk (Mr M J Brown)\nS...|      12|  5.0|[from:, csulo@csv.warwick.ac.uk, (mr, m, j, bro...|[from:, csulo@csv.warwick.ac.uk, (mr, m, j, bro...|[from:, csulo@csv.warwick.ac.uk, (mr, m, j, bro...|[from:, csulo@csv.warwick.ac.uk, (mr, m, j, bro...|
+|From: pmetzger@snark.shearson.com (Perry E. Met...|      11| 12.0|[from:, pmetzger@snark.shearson.com, (perry, e....|[from:, pmetzger@snark.shearson.com, (perry, e....|[from:, pmetzger@snark.shearson.com, (perri, e....|[from:, pmetzger@snark.shearson.com, (perry, e....|
+|Subject: Re: BD&#x27;s did themselves--you&#x27;re all pa...|      16| 13.0|[subject:, re:, bd&#x27;s, did, themselves--you&#x27;re, ...|[subject:, re:, bd&#x27;s, themselves--you&#x27;re, paran...|[subject:, re:, bd&#x27;, themselves--you&#x27;r, paranoi...|[subject:, re:, bd&#x27;s, themselves--you&#x27;re, paran...|
+|From: Geoffrey_Hansen@mindlink.bc.ca (Geoffrey ...|       1|  1.0|[from:, geoffrey_hansen@mindlink.bc.ca, (geoffr...|[from:, geoffrey_hansen@mindlink.bc.ca, (geoffr...|[from:, geoffrey_hansen@mindlink.bc.ca, (geoffr...|[from:, geoffrey_hansen@mindlink.bc.ca, (geoffr...|
++--------------------------------------------------+--------+-----+--------------------------------------------------+--------------------------------------------------+--------------------------------------------------+--------------------------------------------------+
+only showing top 5 rows
+Word2Vec Features:
++--------------------------------------------------+--------------------------------------------------+
+|                                              text|                                  featuresW2Vector|
++--------------------------------------------------+--------------------------------------------------+
+|From: dchhabra@stpl.ists.ca (Deepak Chhabra)\nS...|[-0.014480067580438185,-0.05737933074469092,0.0...|
+|From: csulo@csv.warwick.ac.uk (Mr M J Brown)\nS...|[-0.03523581567424117,0.032049855532386574,-0.0...|
+|From: pmetzger@snark.shearson.com (Perry E. Met...|[-0.06372507126418492,0.00798903439641244,-0.04...|
+|Subject: Re: BD&#x27;s did themselves--you&#x27;re all pa...|[-0.04630187572900231,-0.022194679454058206,-0....|
+|From: Geoffrey_Hansen@mindlink.bc.ca (Geoffrey ...|[0.02513538047652815,-0.015529631159040115,0.00...|
++--------------------------------------------------+--------------------------------------------------+
+only showing top 5 rows
+Word2Vec Predictions:
++--------------------------------------------------+--------+----------+
+|                                              text|category|prediction|
++--------------------------------------------------+--------+----------+
+|From: &quot;UTADNX::UTDSSA::GREER&quot;@utspan.span.nasa....|      14|       6.0|
+|From: CONRADIE@firga.sun.ac.za (Gerrit Conradie...|      12|       1.0|
+|From: Clinton-HQ@Campaign92.Org (Clinton/Gore &#x27;...|      18|      18.0|
+|From: Lauger@ssdgwy.mdc.com (John Lauger)\nSubj...|      13|       2.0|
+|From: aap@wam.umd.edu (Alberto Adolfo Pinkas)\n...|      17|      17.0|
+|From: agr00@ccc.amdahl.com (Anthony G Rose)\nSu...|      15|       5.0|
+|From: andrewm@bio.uts.EDU.AU (Andrew Mears)\nSu...|      13|      13.0|
+|From: bell@nssdca.gsfc.nasa.gov (E. V. Bell, II...|      14|       6.0|
+|From: brein@jplpost.jpl.nasa.gov (Barry S. Rein...|      13|       6.0|
+|From: brifre1@ac.dal.ca\nSubject: Re: POTVIN an...|      10|      14.0|
++--------------------------------------------------+--------+----------+
+only showing top 10 rows
+Logistic Regression Accuracy: 0.54
+Word2Vec Accuracy: 0.43</code></pre>
+
+  <h2>Plots</h2>
+  <p>(No .png plots found in /Users/wizrdm/PycharmProjects/MLonBigData/outputs/week6/plots)</p>
+
+</body>
+</html>

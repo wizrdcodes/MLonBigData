@@ -1,0 +1,169 @@
+20 Newsgroups Data:
++--------------------------------------------------+--------+
+|                                              text|category|
++--------------------------------------------------+--------+
+|From: Mamatha Devineni Ratnam <mr47+@andrew.cmu...|      10|
+|From: mblawson@midway.ecn.uoknor.edu (Matthew B...|       3|
+|From: hilmi-er@dsv.su.se (Hilmi Eren)\nSubject:...|      17|
+|From: guyd@austin.ibm.com (Guy Dawson)\nSubject...|       3|
+|From: Alexander Samuel McDiarmid <am2o+@andrew....|       4|
++--------------------------------------------------+--------+
+only showing top 5 rows
+Total number of documents: 18846
+Categories: ['alt.atheism', 'comp.graphics', 'comp.os.ms-windows.misc', 'comp.sys.ibm.pc.hardware', 'comp.sys.mac.hardware', 'comp.windows.x', 'misc.forsale', 'rec.autos', 'rec.motorcycles', 'rec.sport.baseball', 'rec.sport.hockey', 'sci.crypt', 'sci.electronics', 'sci.med', 'sci.space', 'soc.religion.christian', 'talk.politics.guns', 'talk.politics.mideast', 'talk.politics.misc', 'talk.religion.misc']
+Number of categories: 20
+Category Distribution:
++--------+-----+
+|category|count|
++--------+-----+
+|      19|  628|
+|       0|  799|
+|       7|  990|
+|       6|  975|
+|       9|  994|
+|      17|  940|
+|       5|  988|
+|       1|  973|
+|      10|  999|
+|       3|  982|
+|      12|  984|
+|       8|  996|
+|      11|  991|
+|       2|  985|
+|       4|  963|
+|      13|  990|
+|      18|  775|
+|      14|  987|
+|      15|  997|
+|      16|  910|
++--------+-----+
+25% of each category of Newsgroups:
++--------------------------------------------------+--------+
+|                                              text|category|
++--------------------------------------------------+--------+
+|From: dchhabra@stpl.ists.ca (Deepak Chhabra)\nS...|      10|
+|From: csulo@csv.warwick.ac.uk (Mr M J Brown)\nS...|      12|
+|From: pmetzger@snark.shearson.com (Perry E. Met...|      11|
+|Subject: Re: BD's did themselves--you're all pa...|      16|
+|From: Geoffrey_Hansen@mindlink.bc.ca (Geoffrey ...|       1|
++--------------------------------------------------+--------+
+only showing top 5 rows
+Total number of documents after sampling: 4710
+Category Distribution after sampling:
++--------+-----+
+|category|count|
++--------+-----+
+|      19|  156|
+|       0|  189|
+|       7|  265|
+|       6|  239|
+|       9|  231|
+|      17|  206|
+|       5|  212|
+|       1|  261|
+|      10|  254|
+|       3|  260|
+|      12|  255|
+|       8|  259|
+|      11|  237|
+|       2|  254|
+|       4|  245|
+|      13|  260|
+|      18|  180|
+|      14|  255|
+|      15|  255|
+|      16|  237|
++--------+-----+
+Predictions (selected columns):
++--------------------------------------------------+--------+----------+
+|                                              text|category|prediction|
++--------------------------------------------------+--------+----------+
+|From: "UTADNX::UTDSSA::GREER"@utspan.span.nasa....|      14|       4.0|
+|From: CONRADIE@firga.sun.ac.za (Gerrit Conradie...|      12|       5.0|
+|From: Clinton-HQ@Campaign92.Org (Clinton/Gore '...|      18|       4.0|
+|From: Lauger@ssdgwy.mdc.com (John Lauger)\nSubj...|      13|       2.0|
+|From: aap@wam.umd.edu (Alberto Adolfo Pinkas)\n...|      17|      17.0|
++--------------------------------------------------+--------+----------+
+only showing top 5 rows
+Model Accuracy: 0.54
+Term-Document Matrix (TDM):
+        0    1         2    3    ...       996     997  998       999
+0  0.000000  0.0  1.889091  0.0  ...  0.000000  0.0000  0.0  2.515944
+1  0.000000  0.0  0.000000  0.0  ...  0.000000  0.0000  0.0  0.000000
+2  0.000000  0.0  0.000000  0.0  ...  0.000000  2.3779  0.0  0.000000
+3  1.935862  0.0  0.000000  0.0  ...  1.637191  0.0000  0.0  0.000000
+4  0.000000  0.0  0.000000  0.0  ...  0.000000  0.0000  0.0  0.000000
+[5 rows x 1000 columns]
+df_tokenized:
++--------------------------------------------------+--------+-----+--------------------------------------------------+
+|                                              text|category|label|                                             words|
++--------------------------------------------------+--------+-----+--------------------------------------------------+
+|From: dchhabra@stpl.ists.ca (Deepak Chhabra)\nS...|      10|  8.0|[from:, dchhabra@stpl.ists.ca, (deepak, chhabra...|
+|From: csulo@csv.warwick.ac.uk (Mr M J Brown)\nS...|      12|  5.0|[from:, csulo@csv.warwick.ac.uk, (mr, m, j, bro...|
+|From: pmetzger@snark.shearson.com (Perry E. Met...|      11| 12.0|[from:, pmetzger@snark.shearson.com, (perry, e....|
+|Subject: Re: BD's did themselves--you're all pa...|      16| 13.0|[subject:, re:, bd's, did, themselves--you're, ...|
+|From: Geoffrey_Hansen@mindlink.bc.ca (Geoffrey ...|       1|  1.0|[from:, geoffrey_hansen@mindlink.bc.ca, (geoffr...|
++--------------------------------------------------+--------+-----+--------------------------------------------------+
+only showing top 5 rows
+df_filtered:
++--------------------------------------------------+--------+-----+--------------------------------------------------+--------------------------------------------------+
+|                                              text|category|label|                                             words|                                    filtered_words|
++--------------------------------------------------+--------+-----+--------------------------------------------------+--------------------------------------------------+
+|From: dchhabra@stpl.ists.ca (Deepak Chhabra)\nS...|      10|  8.0|[from:, dchhabra@stpl.ists.ca, (deepak, chhabra...|[from:, dchhabra@stpl.ists.ca, (deepak, chhabra...|
+|From: csulo@csv.warwick.ac.uk (Mr M J Brown)\nS...|      12|  5.0|[from:, csulo@csv.warwick.ac.uk, (mr, m, j, bro...|[from:, csulo@csv.warwick.ac.uk, (mr, m, j, bro...|
+|From: pmetzger@snark.shearson.com (Perry E. Met...|      11| 12.0|[from:, pmetzger@snark.shearson.com, (perry, e....|[from:, pmetzger@snark.shearson.com, (perry, e....|
+|Subject: Re: BD's did themselves--you're all pa...|      16| 13.0|[subject:, re:, bd's, did, themselves--you're, ...|[subject:, re:, bd's, themselves--you're, paran...|
+|From: Geoffrey_Hansen@mindlink.bc.ca (Geoffrey ...|       1|  1.0|[from:, geoffrey_hansen@mindlink.bc.ca, (geoffr...|[from:, geoffrey_hansen@mindlink.bc.ca, (geoffr...|
++--------------------------------------------------+--------+-----+--------------------------------------------------+--------------------------------------------------+
+only showing top 5 rows
+df_stemmed:
++--------------------------------------------------+--------+-----+--------------------------------------------------+--------------------------------------------------+--------------------------------------------------+
+|                                              text|category|label|                                             words|                                    filtered_words|                                     stemmed_words|
++--------------------------------------------------+--------+-----+--------------------------------------------------+--------------------------------------------------+--------------------------------------------------+
+|From: dchhabra@stpl.ists.ca (Deepak Chhabra)\nS...|      10|  8.0|[from:, dchhabra@stpl.ists.ca, (deepak, chhabra...|[from:, dchhabra@stpl.ists.ca, (deepak, chhabra...|[from:, dchhabra@stpl.ists.ca, (deepak, chhabra...|
+|From: csulo@csv.warwick.ac.uk (Mr M J Brown)\nS...|      12|  5.0|[from:, csulo@csv.warwick.ac.uk, (mr, m, j, bro...|[from:, csulo@csv.warwick.ac.uk, (mr, m, j, bro...|[from:, csulo@csv.warwick.ac.uk, (mr, m, j, bro...|
+|From: pmetzger@snark.shearson.com (Perry E. Met...|      11| 12.0|[from:, pmetzger@snark.shearson.com, (perry, e....|[from:, pmetzger@snark.shearson.com, (perry, e....|[from:, pmetzger@snark.shearson.com, (perri, e....|
+|Subject: Re: BD's did themselves--you're all pa...|      16| 13.0|[subject:, re:, bd's, did, themselves--you're, ...|[subject:, re:, bd's, themselves--you're, paran...|[subject:, re:, bd', themselves--you'r, paranoi...|
+|From: Geoffrey_Hansen@mindlink.bc.ca (Geoffrey ...|       1|  1.0|[from:, geoffrey_hansen@mindlink.bc.ca, (geoffr...|[from:, geoffrey_hansen@mindlink.bc.ca, (geoffr...|[from:, geoffrey_hansen@mindlink.bc.ca, (geoffr...|
++--------------------------------------------------+--------+-----+--------------------------------------------------+--------------------------------------------------+--------------------------------------------------+
+only showing top 5 rows
+df_lemmatized:
++--------------------------------------------------+--------+-----+--------------------------------------------------+--------------------------------------------------+--------------------------------------------------+--------------------------------------------------+
+|                                              text|category|label|                                             words|                                    filtered_words|                                     stemmed_words|                                  lemmatized_words|
++--------------------------------------------------+--------+-----+--------------------------------------------------+--------------------------------------------------+--------------------------------------------------+--------------------------------------------------+
+|From: dchhabra@stpl.ists.ca (Deepak Chhabra)\nS...|      10|  8.0|[from:, dchhabra@stpl.ists.ca, (deepak, chhabra...|[from:, dchhabra@stpl.ists.ca, (deepak, chhabra...|[from:, dchhabra@stpl.ists.ca, (deepak, chhabra...|[from:, dchhabra@stpl.ists.ca, (deepak, chhabra...|
+|From: csulo@csv.warwick.ac.uk (Mr M J Brown)\nS...|      12|  5.0|[from:, csulo@csv.warwick.ac.uk, (mr, m, j, bro...|[from:, csulo@csv.warwick.ac.uk, (mr, m, j, bro...|[from:, csulo@csv.warwick.ac.uk, (mr, m, j, bro...|[from:, csulo@csv.warwick.ac.uk, (mr, m, j, bro...|
+|From: pmetzger@snark.shearson.com (Perry E. Met...|      11| 12.0|[from:, pmetzger@snark.shearson.com, (perry, e....|[from:, pmetzger@snark.shearson.com, (perry, e....|[from:, pmetzger@snark.shearson.com, (perri, e....|[from:, pmetzger@snark.shearson.com, (perry, e....|
+|Subject: Re: BD's did themselves--you're all pa...|      16| 13.0|[subject:, re:, bd's, did, themselves--you're, ...|[subject:, re:, bd's, themselves--you're, paran...|[subject:, re:, bd', themselves--you'r, paranoi...|[subject:, re:, bd's, themselves--you're, paran...|
+|From: Geoffrey_Hansen@mindlink.bc.ca (Geoffrey ...|       1|  1.0|[from:, geoffrey_hansen@mindlink.bc.ca, (geoffr...|[from:, geoffrey_hansen@mindlink.bc.ca, (geoffr...|[from:, geoffrey_hansen@mindlink.bc.ca, (geoffr...|[from:, geoffrey_hansen@mindlink.bc.ca, (geoffr...|
++--------------------------------------------------+--------+-----+--------------------------------------------------+--------------------------------------------------+--------------------------------------------------+--------------------------------------------------+
+only showing top 5 rows
+Word2Vec Features:
++--------------------------------------------------+--------------------------------------------------+
+|                                              text|                                  featuresW2Vector|
++--------------------------------------------------+--------------------------------------------------+
+|From: dchhabra@stpl.ists.ca (Deepak Chhabra)\nS...|[-0.014480067580438185,-0.05737933074469092,0.0...|
+|From: csulo@csv.warwick.ac.uk (Mr M J Brown)\nS...|[-0.03523581567424117,0.032049855532386574,-0.0...|
+|From: pmetzger@snark.shearson.com (Perry E. Met...|[-0.06372507126418492,0.00798903439641244,-0.04...|
+|Subject: Re: BD's did themselves--you're all pa...|[-0.04630187572900231,-0.022194679454058206,-0....|
+|From: Geoffrey_Hansen@mindlink.bc.ca (Geoffrey ...|[0.02513538047652815,-0.015529631159040115,0.00...|
++--------------------------------------------------+--------------------------------------------------+
+only showing top 5 rows
+Word2Vec Predictions:
++--------------------------------------------------+--------+----------+
+|                                              text|category|prediction|
++--------------------------------------------------+--------+----------+
+|From: "UTADNX::UTDSSA::GREER"@utspan.span.nasa....|      14|       6.0|
+|From: CONRADIE@firga.sun.ac.za (Gerrit Conradie...|      12|       1.0|
+|From: Clinton-HQ@Campaign92.Org (Clinton/Gore '...|      18|      18.0|
+|From: Lauger@ssdgwy.mdc.com (John Lauger)\nSubj...|      13|       2.0|
+|From: aap@wam.umd.edu (Alberto Adolfo Pinkas)\n...|      17|      17.0|
+|From: agr00@ccc.amdahl.com (Anthony G Rose)\nSu...|      15|       5.0|
+|From: andrewm@bio.uts.EDU.AU (Andrew Mears)\nSu...|      13|      13.0|
+|From: bell@nssdca.gsfc.nasa.gov (E. V. Bell, II...|      14|       6.0|
+|From: brein@jplpost.jpl.nasa.gov (Barry S. Rein...|      13|       6.0|
+|From: brifre1@ac.dal.ca\nSubject: Re: POTVIN an...|      10|      14.0|
++--------------------------------------------------+--------+----------+
+only showing top 10 rows
+Logistic Regression Accuracy: 0.54
+Word2Vec Accuracy: 0.43

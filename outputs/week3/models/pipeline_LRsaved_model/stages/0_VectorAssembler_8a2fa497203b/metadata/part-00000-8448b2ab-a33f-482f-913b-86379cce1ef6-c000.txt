@@ -1,0 +1,1 @@
+{"class":"org.apache.spark.ml.feature.VectorAssembler","timestamp":1771445926826,"sparkVersion":"4.1.1","uid":"VectorAssembler_8a2fa497203b","paramMap":{"inputCols":["Square_Footage","Num_Bedrooms","Num_Bathrooms","Year_Built","Lot_Size"],"outputCol":"Features"},"defaultParamMap":{"handleInvalid":"error","outputCol":"VectorAssembler_8a2fa497203b__output"}}
