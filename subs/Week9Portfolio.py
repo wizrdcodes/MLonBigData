@@ -97,7 +97,7 @@ print(f'    Master: {spark.sparkContext.master}')
 print(f'    App:    {spark.sparkContext.appName}')
 
 #%%
-data_path = '/Users/wizrdm/Desktop/UEL/Machine Learning on Big Data/test.csv'
+data_path = '/Users/wizrdm/Desktop/UEL/Machine Learning on Big Data/aclImdb'
 print(f'\n✅  Loaded file: {data_path}')
 
 #%%
