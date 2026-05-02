@@ -16,9 +16,12 @@ from pyspark.ml.feature import VectorAssembler, IDF, Binarizer, StringIndexer
 from pyspark.ml.classification import NaiveBayes
 from pyspark.ml.evaluation import MulticlassClassificationEvaluator
 from pyspark.sql.functions import col
-from scipy.signal.windows import gaussian
 
-from src.mlonbigdata import show_df, title_xy_labels
+from src.mlonbigdata import show_df
+
+from pathlib import Path
+import numpy as np
+import matplotlib.pyplot as plt
 
 # File location defined
 file = '/Users/wizrdm/Desktop/UEL/Machine Learning on Big Data/emails.csv'
@@ -244,20 +247,117 @@ def train_bernoulli_nb():
     results = evaluate_predictions(predictions, "Bernoulli Naive Bayes")
     return model, predictions, results
 
+# Plot output directory
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PLOTS_DIR = PROJECT_ROOT / "outputs" / "week8" / "plots"
+PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+
+def safe_filename(name):
+    """Convert a model name into a safe filename."""
+    return (
+        name.lower()
+        .replace(" ", "_")
+        .replace("-", "_")
+        .replace("/", "_"))
+
+def format_label(label_name):
+    """Make numeric class labels easier to read on plots."""
+    label_name = str(label_name)
+    if label_name == "0":
+        return "Ham (0)"
+    elif label_name == "1":
+        return "Spam (1)"
+    else:
+        return label_name
+
+
+def save_confusion_matrix_plot(predictions, model_name, label_names):
+    """Create, title, and save a confusion matrix plot for one model."""
+    matrix_size = len(label_names)
+    matrix = np.zeros((matrix_size, matrix_size), dtype=int)
+    confusion_counts = (
+        predictions
+        .groupBy("label", "prediction")
+        .count()
+        .collect())
+    for row in confusion_counts:
+        true_label = int(row["label"])
+        predicted_label = int(row["prediction"])
+        count = int(row["count"])
+        matrix[true_label, predicted_label] = count
+    display_labels = [format_label(label) for label in label_names]
+    fig, ax = plt.subplots(figsize=(7, 6))
+    image = ax.imshow(matrix)
+    ax.set_title(f"{model_name} Confusion Matrix")
+    ax.set_xlabel("Predicted Label")
+    ax.set_ylabel("True Label")
+    ax.set_xticks(np.arange(matrix_size))
+    ax.set_yticks(np.arange(matrix_size))
+    ax.set_xticklabels(display_labels)
+    ax.set_yticklabels(display_labels)
+    for i in range(matrix_size):
+        for j in range(matrix_size):
+            ax.text(
+                j,
+                i,
+                str(matrix[i, j]),
+                ha="center",
+                va="center")
+    fig.colorbar(image, ax=ax)
+    fig.tight_layout()
+    output_path = PLOTS_DIR / f"{safe_filename(model_name)}_confusion_matrix.png"
+    fig.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved confusion matrix plot: {output_path}")
+
+def save_f1_comparison_plot(results):
+    """Create, title, and save a bar chart comparing weighted F1 scores."""
+    model_names = [row["model"] for row in results]
+    f1_scores = [row["weighted_f1"] for row in results]
+    best_index = f1_scores.index(max(f1_scores))
+    fig, ax = plt.subplots(figsize=(9, 6))
+    bars = ax.bar(model_names, f1_scores)
+    ax.set_title("Weighted F1 Score Comparison by Model")
+    ax.set_xlabel("Model")
+    ax.set_ylabel("Weighted F1 Score")
+    ax.set_ylim(0, 1.05)
+    plt.xticks(rotation=15, ha="right")
+    for index, bar in enumerate(bars):
+        height = bar.get_height()
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            height + 0.01,
+            f"{height:.4f}",
+            ha="center",
+            va="bottom")
+        if index == best_index:
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                height + 0.06,
+                "Highest",
+                ha="center",
+                va="bottom",
+                fontweight="bold")
+    fig.tight_layout()
+    output_path = PLOTS_DIR / "weighted_f1_score_comparison.png"
+    fig.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved F1 comparison plot: {output_path}")
+
 # Model 1: Multinomial Naive Bayes with TF-IDF
 multinomial_model, multinomial_predictions, multinomial_results = train_idf_nb(
     model_name="Multinomial Naive Bayes",
     model_type="multinomial")
 
-# Model 2: Complement Naive Bayes with TF-IDF
+# Model 2: Gaussian Naive Bayes with TF-IDF
 gaussian_model, gaussian_predictions, gaussian_results = train_idf_nb(
-    model_name="Complement Naive Bayes",
+    model_name="Gaussian Naive Bayes",
     model_type="gaussian")
 
 # Model 3: Bernoulli Naive Bayes with binary word-presence features
 bernoulli_model, bernoulli_predictions, bernoulli_results = train_bernoulli_nb()
 
-# compare all models
+# Compare all models
 results = [
     multinomial_results,
     gaussian_results,
@@ -268,9 +368,34 @@ results_df = spark.createDataFrame(results)
 print("\nModel comparison:")
 results_df.orderBy(F.desc("weighted_f1")).show(truncate=False)
 
-# confusion matrix for best model
+# Best model by weighted F1
 best_model_name = results_df.orderBy(F.desc("weighted_f1")).first()["model"]
 print("\nBest model by weighted F1:", best_model_name)
+
+# Get label names in the same order as StringIndexer alphabetAsc
+label_names = [
+    row["target_text"]
+    for row in df_model.select("target_text").distinct().orderBy(
+        "target_text").collect()]
+
+# Save confusion matrix plots for every model
+save_confusion_matrix_plot(
+    predictions=multinomial_predictions,
+    model_name="Multinomial Naive Bayes",
+    label_names=label_names)
+
+save_confusion_matrix_plot(
+    predictions=gaussian_predictions,
+    model_name="Gaussian Naive Bayes",
+    label_names=label_names)
+
+save_confusion_matrix_plot(
+    predictions=bernoulli_predictions,
+    model_name="Bernoulli Naive Bayes",
+    label_names=label_names)
+
+# Save weighted F1 comparison plot
+save_f1_comparison_plot(results)
 
 # stop Spark
 spark.stop()

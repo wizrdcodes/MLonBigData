@@ -140,7 +140,7 @@ def make_html_file(week: int, run_script: bool = True) -> Path:
 
 # Call using this function to generate the HTML file
 def main():
-    make_html_file(DEFAULT_WEEK, run_script=True)
+    make_html_file(DEFAULT_WEEK, run_script=False)
 
 if __name__ == "__main__":
     main()

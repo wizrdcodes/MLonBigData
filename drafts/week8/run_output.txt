@@ -1,0 +1,177 @@
+/Users/wizrdm/PycharmProjects/MLonBigData/.venv/bin/python /Users/wizrdm/PycharmProjects/MLonBigData/subs/week8/Week8Portfolio.py
+WARNING: Using incubator modules: jdk.incubator.vector
+Using Spark's default log4j profile: org/apache/spark/log4j2-defaults.properties
+26/05/02 18:24:58 WARN Utils: Your hostname, Wizrds-MacBook-Pro.local, resolves to a loopback address: 127.0.0.1; using 10.136.11.24 instead (on interface en0)
+26/05/02 18:24:58 WARN Utils: Set SPARK_LOCAL_IP if you need to bind to another address
+Using Spark's default log4j profile: org/apache/spark/log4j2-defaults.properties
+Setting default log level to "WARN".
+To adjust logging level use sc.setLogLevel(newLevel). For SparkR, use setLogLevel(newLevel).
+26/05/02 18:24:59 WARN NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable
+Showing first and last 5 columns of dataframe:
++---------+---+---+---+---+--------+--------+---+---+----------+
+|Email No.|the| to|ect|and|military|allowing| ff|dry|Prediction|
++---------+---+---+---+---+--------+--------+---+---+----------+
+|  Email 1|  0|  0|  1|  0|       0|       0|  0|  0|         0|
+|  Email 2|  8| 13| 24|  6|       0|       0|  1|  0|         0|
+|  Email 3|  0|  0|  1|  0|       0|       0|  0|  0|         0|
+|  Email 4|  0|  5| 22|  0|       0|       0|  0|  0|         0|
+|  Email 5|  7|  6| 17|  1|       0|       0|  1|  0|         0|
++---------+---+---+---+---+--------+--------+---+---+----------+
+only showing top 5 rows
+Number of rows: 5172, Number of columns: 3002
+
+Showing data balance:
++----------+-----+
+|Prediction|count|
++----------+-----+
+|         1| 1500|
+|         0| 3672|
++----------+-----+
+
+Cleaned columns preview:
+['email_no', 'the', 'to', 'ect', 'and', 'for', 'of', 'a', 'you', 'hou', 'in', 'on', 'is', 'this', 'enron', 'i', 'be', 'that', 'will', 'have']
+Total columns: 3002
++----------+
+|prediction|
++----------+
+|         0|
+|         0|
+|         0|
+|         0|
+|         0|
++----------+
+only showing top 5 rows
+
+Number of feature columns: 3000
+Example feature columns: ['the', 'to', 'ect', 'and', 'for', 'of', 'a', 'you', 'hou', 'in', 'on', 'is', 'this', 'enron', 'i', 'be', 'that', 'will', 'have', 'with']
+
+Prepared modelling dataframe:
++--------+-----------+---+----+----+---+---+---+-----+---+----+----+
+|email_no|target_text|the|to  |ect |and|for|of |a    |you|hou |in  |
++--------+-----------+---+----+----+---+---+---+-----+---+----+----+
+|Email 1 |0          |0.0|0.0 |1.0 |0.0|0.0|0.0|2.0  |0.0|0.0 |0.0 |
+|Email 2 |0          |8.0|13.0|24.0|6.0|6.0|2.0|102.0|1.0|27.0|18.0|
+|Email 3 |0          |0.0|0.0 |1.0 |0.0|0.0|0.0|8.0  |0.0|0.0 |4.0 |
+|Email 4 |0          |0.0|5.0 |22.0|0.0|5.0|1.0|51.0 |2.0|10.0|1.0 |
+|Email 5 |0          |7.0|6.0 |17.0|1.0|5.0|2.0|57.0 |0.0|9.0 |3.0 |
++--------+-----------+---+----+----+---+---+---+-----+---+----+----+
+only showing top 5 rows
+
+Label distribution:
++-----------+-----+
+|target_text|count|
++-----------+-----+
+|          0| 3672|
+|          1| 1500|
++-----------+-----+
+
+Showing first and last 5 columns of dataframe:
++--------+---+---+---+---+--------+--------+---+---+----------+
+|email_no|the| to|ect|and|military|allowing| ff|dry|prediction|
++--------+---+---+---+---+--------+--------+---+---+----------+
+| Email 1|  0|  0|  1|  0|       0|       0|  0|  0|         0|
+| Email 2|  8| 13| 24|  6|       0|       0|  1|  0|         0|
+| Email 3|  0|  0|  1|  0|       0|       0|  0|  0|         0|
+| Email 4|  0|  5| 22|  0|       0|       0|  0|  0|         0|
+| Email 5|  7|  6| 17|  1|       0|       0|  1|  0|         0|
++--------+---+---+---+---+--------+--------+---+---+----------+
+only showing top 5 rows
+
+Training rows: 4148
+Testing rows: 1024
+
+Multinomial Naive Bayes prediction preview:
++---------+-----------+-----+----------+----------------------------------------+
+|email_no |target_text|label|prediction|probability                             |
++---------+-----------+-----+----------+----------------------------------------+
+|Email 100|1          |1.0  |1.0       |[4.389158469279041E-101,1.0]            |
+|Email 104|1          |1.0  |1.0       |[0.36214250573064843,0.6378574942693517]|
+|Email 106|0          |0.0  |0.0       |[1.0,5.655240718994664E-62]             |
+|Email 110|1          |1.0  |1.0       |[2.108860518609545E-19,1.0]             |
+|Email 116|1          |1.0  |1.0       |[0.0,1.0]                               |
+|Email 12 |0          |0.0  |0.0       |[1.0,0.0]                               |
+|Email 125|0          |0.0  |0.0       |[1.0,3.1428655730301957E-74]            |
+|Email 130|1          |1.0  |1.0       |[0.47252824140917404,0.527471758590826] |
+|Email 14 |0          |0.0  |0.0       |[1.0,3.354242122972057E-282]            |
+|Email 140|0          |0.0  |0.0       |[1.0,1.8888126475345962E-171]           |
++---------+-----------+-----+----------+----------------------------------------+
+only showing top 10 rows
+
+--- Multinomial Naive Bayes Results ---
+Accuracy:            0.9609
+Weighted Precision:  0.9637
+Weighted Recall:     0.9609
+Weighted F1:         0.9614
+Spam Precision:      0.8988
+Spam Recall:         0.9842
+Spam F1:             0.9396
+
+Gaussian Naive Bayes prediction preview:
++---------+-----------+-----+----------+-----------+
+|email_no |target_text|label|prediction|probability|
++---------+-----------+-----+----------+-----------+
+|Email 100|1          |1.0  |1.0       |[0.0,1.0]  |
+|Email 104|1          |1.0  |1.0       |[0.0,1.0]  |
+|Email 106|0          |0.0  |0.0       |[1.0,0.0]  |
+|Email 110|1          |1.0  |1.0       |[0.0,1.0]  |
+|Email 116|1          |1.0  |1.0       |[0.0,1.0]  |
+|Email 12 |0          |0.0  |0.0       |[1.0,0.0]  |
+|Email 125|0          |0.0  |0.0       |[1.0,0.0]  |
+|Email 130|1          |1.0  |1.0       |[0.0,1.0]  |
+|Email 14 |0          |0.0  |0.0       |[1.0,0.0]  |
+|Email 140|0          |0.0  |0.0       |[1.0,0.0]  |
++---------+-----------+-----+----------+-----------+
+only showing top 10 rows
+
+--- Gaussian Naive Bayes Results ---
+Accuracy:            0.9424
+Weighted Precision:  0.9460
+Weighted Recall:     0.9424
+Weighted F1:         0.9431
+Spam Precision:      0.8682
+Spam Recall:         0.9589
+Spam F1:             0.9113
+
+Bernoulli Naive Bayes prediction preview:
++---------+-----------+-----+----------+------------------------------------------+
+|email_no |target_text|label|prediction|probability                               |
++---------+-----------+-----+----------+------------------------------------------+
+|Email 100|1          |1.0  |1.0       |[3.4914173385914605E-21,1.0]              |
+|Email 104|1          |1.0  |0.0       |[0.9999999999999267,7.323149192367328E-14]|
+|Email 106|0          |0.0  |0.0       |[1.0,1.1421933658437123E-26]              |
+|Email 110|1          |1.0  |1.0       |[1.0137905581109895E-7,0.9999998986209443]|
+|Email 116|1          |1.0  |1.0       |[1.789132702161054E-80,1.0]               |
+|Email 12 |0          |0.0  |0.0       |[1.0,2.1835201817865354E-36]              |
+|Email 125|0          |0.0  |0.0       |[1.0,8.228260882752646E-34]               |
+|Email 130|1          |1.0  |0.0       |[0.9999999999993527,6.472514669605486E-13]|
+|Email 14 |0          |0.0  |0.0       |[1.0,1.8431310605071444E-38]              |
+|Email 140|0          |0.0  |0.0       |[1.0,3.132968032037723E-30]               |
++---------+-----------+-----+----------+------------------------------------------+
+only showing top 10 rows
+
+--- Bernoulli Naive Bayes Results ---
+Accuracy:            0.8740
+Weighted Precision:  0.8723
+Weighted Recall:     0.8740
+Weighted F1:         0.8727
+Spam Precision:      0.8191
+Spam Recall:         0.7595
+Spam F1:             0.7882
+
+Model comparison:
++------------+-----------------------+------------------+------------------+------------------+------------------+------------------+---------------+
+|accuracy    |model                  |spam_f1           |spam_precision    |spam_recall       |weighted_f1       |weighted_precision|weighted_recall|
++------------+-----------------------+------------------+------------------+------------------+------------------+------------------+---------------+
+|0.9609375   |Multinomial Naive Bayes|0.9395770392749245|0.8988439306358381|0.9841772151898734|0.9613998476347418|0.9636850030692106|0.9609375      |
+|0.9423828125|Gaussian Naive Bayes   |0.9112781954887218|0.8681948424068768|0.9588607594936709|0.9431250050967985|0.9460097799267748|0.9423828125   |
+|0.8740234375|Bernoulli Naive Bayes  |0.7881773399014779|0.8191126279863481|0.759493670886076 |0.8726513317009965|0.8722957376110615|0.8740234375   |
++------------+-----------------------+------------------+------------------+------------------+------------------+------------------+---------------+
+
+
+Best model by weighted F1: Multinomial Naive Bayes
+Saved confusion matrix plot: /Users/wizrdm/PycharmProjects/MLonBigData/outputs/week8/plots/multinomial_naive_bayes_confusion_matrix.png
+Saved confusion matrix plot: /Users/wizrdm/PycharmProjects/MLonBigData/outputs/week8/plots/gaussian_naive_bayes_confusion_matrix.png
+Saved confusion matrix plot: /Users/wizrdm/PycharmProjects/MLonBigData/outputs/week8/plots/bernoulli_naive_bayes_confusion_matrix.png
+Saved F1 comparison plot: /Users/wizrdm/PycharmProjects/MLonBigData/outputs/week8/plots/weighted_f1_score_comparison.png
+
+Process finished with exit code 0
