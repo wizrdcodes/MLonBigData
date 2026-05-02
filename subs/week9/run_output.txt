@@ -1,0 +1,133 @@
+/Users/wizrdm/PycharmProjects/MLonBigData/.venv/bin/python /Users/wizrdm/PycharmProjects/MLonBigData/subs/Week9Portfolio.py
+WARNING: Using incubator modules: jdk.incubator.vector
+Using Spark's default log4j profile: org/apache/spark/log4j2-defaults.properties
+26/05/02 21:05:00 WARN Utils: Your hostname, Wizrds-MacBook-Pro.local, resolves to a loopback address: 127.0.0.1; using 10.136.11.24 instead (on interface en0)
+26/05/02 21:05:00 WARN Utils: Set SPARK_LOCAL_IP if you need to bind to another address
+Using Spark's default log4j profile: org/apache/spark/log4j2-defaults.properties
+Setting default log level to "WARN".
+To adjust logging level use sc.setLogLevel(newLevel). For SparkR, use setLogLevel(newLevel).
+26/05/02 21:05:01 WARN NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable
+Spark 4.1.1 started.
+Master: local[*]
+App:    Week9_IMDB_LinearSVM_TextClassification
+
+Using IMDB dataset folder: /Users/wizrdm/Desktop/UEL/Machine Learning on Big Data/aclImdb
+
+Schema:
+root
+ |-- file_path: string (nullable = true)
+ |-- text_raw: string (nullable = true)
+ |-- split: string (nullable = false)
+ |-- sentiment: string (nullable = false)
+ |-- label: double (nullable = false)
+
+
+Sample rows:
+Traceback (most recent call last):
+  File "/Users/wizrdm/PycharmProjects/MLonBigData/.venv/lib/python3.13/site-packages/pyspark/python/lib/pyspark.zip/pyspark/daemon.py", line 233, in manager
+    code = worker(sock, authenticated)
+  File "/Users/wizrdm/PycharmProjects/MLonBigData/.venv/lib/python3.13/site-packages/pyspark/python/lib/pyspark.zip/pyspark/daemon.py", line 87, in worker
+    outfile.flush()
+    ~~~~~~~~~~~~~^^
+BrokenPipeError: [Errno 32] Broken pipe
++-----+---------+-----+--------------------------------------------------------------------------------+--------------------------------------------------------------------------------+
+|split|sentiment|label|                                                                       file_path|                                                                        text_raw|
++-----+---------+-----+--------------------------------------------------------------------------------+--------------------------------------------------------------------------------+
+|train|      pos|  1.0|file:/Users/wizrdm/Desktop/UEL/Machine Learning on Big Data/aclImdb/train/pos...|Bromwell High is a cartoon comedy. It ran at the same time as some other prog...|
+|train|      pos|  1.0|file:/Users/wizrdm/Desktop/UEL/Machine Learning on Big Data/aclImdb/train/pos...|Homelessness (or Houselessness as George Carlin stated) has been an issue for...|
+|train|      pos|  1.0|file:/Users/wizrdm/Desktop/UEL/Machine Learning on Big Data/aclImdb/train/pos...|Brilliant over-acting by Lesley Ann Warren. Best dramatic hobo lady I have ev...|
+|train|      pos|  1.0|file:/Users/wizrdm/Desktop/UEL/Machine Learning on Big Data/aclImdb/train/pos...|This is easily the most underrated film inn the Brooks cannon. Sure, its flaw...|
+|train|      pos|  1.0|file:/Users/wizrdm/Desktop/UEL/Machine Learning on Big Data/aclImdb/train/pos...|This is not the typical Mel Brooks film. It was much less slapstick than most...|
++-----+---------+-----+--------------------------------------------------------------------------------+--------------------------------------------------------------------------------+
+only showing top 5 rows
+
+Total reviews loaded: 50,000
+
+Dataset distribution:
+split sentiment  label  count
+ test       neg    0.0  12500
+ test       pos    1.0  12500
+train       neg    0.0  12500
+train       pos    1.0  12500
+
+Preprocessing complete.
+Training reviews: 25,000
+Testing reviews:  25,000
+
+Cleaned text preview:
+Traceback (most recent call last):
++-----+---------+-----+----------------------------------------------------------------------------------------------------+
+|split|sentiment|label|                                                                                                text|
++-----+---------+-----+----------------------------------------------------------------------------------------------------+
+|train|      pos|  1.0|bromwell high is a cartoon comedy it ran at the same time as some other programs about school lif...|
+|train|      pos|  1.0|homelessness or houselessness as george carlin stated has been an issue for years but never a pla...|
+|train|      pos|  1.0|brilliant over acting by lesley ann warren best dramatic hobo lady i have ever seen and love scen...|
+|train|      pos|  1.0|this is easily the most underrated film inn the brooks cannon sure its flawed it does not give a ...|
+|train|      pos|  1.0|this is not the typical mel brooks film it was much less slapstick than most of his movies and ac...|
++-----+---------+-----+----------------------------------------------------------------------------------------------------+
+only showing top 5 rows
+  File "/Users/wizrdm/PycharmProjects/MLonBigData/.venv/lib/python3.13/site-packages/pyspark/python/lib/pyspark.zip/pyspark/daemon.py", line 233, in manager
+    code = worker(sock, authenticated)
+  File "/Users/wizrdm/PycharmProjects/MLonBigData/.venv/lib/python3.13/site-packages/pyspark/python/lib/pyspark.zip/pyspark/daemon.py", line 87, in worker
+    outfile.flush()
+    ~~~~~~~~~~~~~^^
+BrokenPipeError: [Errno 32] Broken pipe
+
+TF-IDF vectors created.
+Feature dimensions: 262,144
+
+Sample sparse feature vectors:
++--------------------------------------------------------------------------------+--------------------------------------------------------------------------------+
+|                                                                            text|                                                                        features|
++--------------------------------------------------------------------------------+--------------------------------------------------------------------------------+
+|bromwell high is a cartoon comedy it ran at the same time as some other progr...|(262144,[991,4360,8538,9046,15960,21823,26279,40350,51576,56490,61031,64173,6...|
+|homelessness or houselessness as george carlin stated has been an issue for y...|(262144,[1696,2306,2325,2731,5227,8538,11937,17291,17826,17893,19153,19546,19...|
+|brilliant over acting by lesley ann warren best dramatic hobo lady i have eve...|(262144,[8538,15623,19454,21823,32055,36769,52471,54984,55639,62382,62978,701...|
++--------------------------------------------------------------------------------+--------------------------------------------------------------------------------+
+only showing top 3 rows
+Training Logistic Regression baseline...
+Traceback (most recent call last):
+  File "/Users/wizrdm/PycharmProjects/MLonBigData/.venv/lib/python3.13/site-packages/pyspark/python/lib/pyspark.zip/pyspark/daemon.py", line 233, in manager
+    code = worker(sock, authenticated)
+  File "/Users/wizrdm/PycharmProjects/MLonBigData/.venv/lib/python3.13/site-packages/pyspark/python/lib/pyspark.zip/pyspark/daemon.py", line 87, in worker
+    outfile.flush()
+    ~~~~~~~~~~~~~^^
+BrokenPipeError: [Errno 32] Broken pipe
+Logistic Regression completed in 19.5s
+
+Training Linear SVM...
+Linear SVM completed in 30.7s
+
+Evaluation Results
+
+Logistic Regression
+Accuracy:           0.8196
+Weighted Precision: 0.8198
+Weighted Recall:    0.8196
+F1 Score:           0.8196
+AUC-ROC:            0.8863
+Train Time:         19.5s
+
+Linear SVM
+Accuracy:           0.8541
+Weighted Precision: 0.8542
+Weighted Recall:    0.8541
+F1 Score:           0.8541
+AUC-ROC:            0.9208
+Train Time:         30.7s
+/Users/wizrdm/PycharmProjects/MLonBigData/.venv/lib/python3.13/site-packages/pyspark/sql/context.py:157: FutureWarning: Deprecated in 3.0.0. Use SparkSession.builder.getOrCreate() instead.
+  warnings.warn(
+/Users/wizrdm/PycharmProjects/MLonBigData/.venv/lib/python3.13/site-packages/pyspark/sql/context.py:157: FutureWarning: Deprecated in 3.0.0. Use SparkSession.builder.getOrCreate() instead.
+  warnings.warn(
+
+Logistic Regression raw confusion matrix counts:
+[[10413  2087]
+ [ 2423 10077]]
+
+Linear SVM raw confusion matrix counts:
+[[10741  1759]
+ [ 1888 10612]]
+
+Spark session stopped.
+
+Process finished with exit code 0
