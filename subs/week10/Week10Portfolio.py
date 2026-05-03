@@ -34,10 +34,51 @@
 
 # Core Python libraries
 import os
+import sys
 import warnings
 from pathlib import Path
 
 warnings.filterwarnings("ignore")
+
+# Helps avoid Spark's common local hostname warning on macOS.
+os.environ.setdefault("SPARK_LOCAL_IP", "127.0.0.1")
+
+
+class WarnLineFilter:
+    """File-like stream wrapper that skips console lines containing WARN.
+
+    Spark often writes useful results and noisy WARN lines to the console. This
+    wrapper keeps the output easier to paste into an HTML/report by filtering
+    lines that contain WARN while still allowing ERROR messages through.
+    """
+
+    def __init__(self, stream, skip_terms=("WARN",)):
+        self.stream = stream
+        self.skip_terms = skip_terms
+        self._buffer = ""
+
+    def write(self, text):
+        self._buffer += text
+        while "\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\n", 1)
+            if not any(term in line for term in self.skip_terms):
+                self.stream.write(line + "\n")
+
+    def flush(self):
+        if self._buffer:
+            if not any(term in self._buffer for term in self.skip_terms):
+                self.stream.write(self._buffer)
+            self._buffer = ""
+        self.stream.flush()
+
+    def __getattr__(self, attr):
+        return getattr(self.stream, attr)
+
+
+FILTER_WARN_MESSAGES = True
+if FILTER_WARN_MESSAGES:
+    sys.stdout = WarnLineFilter(sys.stdout)
+    sys.stderr = WarnLineFilter(sys.stderr)
 
 import numpy as np
 import pandas as pd
@@ -51,14 +92,17 @@ from pyspark.sql.functions import (
     col,
     dayofweek,
     from_unixtime,
-    hour,
     lag,
     lead,
-    minute,
+    max as spark_max,
+    max_by,
+    min as spark_min,
+    min_by,
     month,
     row_number,
     signum,
     stddev,
+    sum as spark_sum,
     to_date,
     when,
 )
@@ -96,7 +140,7 @@ PLOTS_DIR = PROJECT_ROOT / "outputs" / "week10" / "plots"
 PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
 REQUIRED_COLUMNS = ["Timestamp", "Open", "High", "Low", "Close", "Volume"]
-FORECAST_HORIZON = 1  # Predict the next one-minute close price.
+FORECAST_HORIZON = 1  # Predict the next daily close price.
 
 
 def save_current_plot(filename: str) -> None:
@@ -231,7 +275,18 @@ save_current_plot("btc_correlation.png")
 
 #%%
 # Spark Data Loading and Preprocessing
-spark = SparkSession.builder.appName("Week10_Bitcoin_Forecasting").getOrCreate()
+spark = (
+    SparkSession.builder.appName("Week10_Bitcoin_Forecasting")
+    .config("spark.ui.showConsoleProgress", "false")
+    .config("spark.sql.shuffle.partitions", "8")
+    .config("spark.default.parallelism", "8")
+    .config("spark.sql.adaptive.enabled", "true")
+    .config("spark.sql.debug.maxToStringFields", "200")
+    .config("spark.driver.memory", "8g")
+    .getOrCreate()
+)
+
+spark.sparkContext.setLogLevel("ERROR")
 spark_df = spark.read.csv(data_file, header=True, inferSchema=True)
 
 print("✅ Raw Spark schema:")
@@ -244,22 +299,37 @@ parsed_df = spark_df.select(
     col("Low").cast("double"),
     col("Close").cast("double"),
     col("Volume").cast("double"),
-)
+).dropna(subset=["DateTime", "Open", "High", "Low", "Close", "Volume"])
 
+# The raw CSV contains one-minute data. Running global lag/rolling windows across
+# all 7.5+ million minute rows can force Spark into a single huge window partition
+# and cause an out-of-memory error. The fix is to aggregate to daily OHLCV rows
+# before applying the forecasting windows. This still uses the full CSV, but the
+# ML stage runs over a manageable daily time series.
 df = (
     parsed_df.withColumn("Date", to_date(col("DateTime")))
-    .dropna(subset=["DateTime", "Open", "High", "Low", "Close", "Volume"])
+    .groupBy("Date")
+    .agg(
+        min_by(col("Open"), col("DateTime")).alias("Open"),
+        spark_max("High").alias("High"),
+        spark_min("Low").alias("Low"),
+        max_by(col("Close"), col("DateTime")).alias("Close"),
+        spark_sum("Volume").alias("Volume"),
+    )
+    .withColumn("DateTime", col("Date").cast("timestamp"))
     .orderBy("DateTime")
+    .cache()
 )
 
-print("✅ Cleaned Spark DataFrame preview:")
+print("✅ Cleaned daily Spark DataFrame preview:")
 df.show(5, truncate=False)
+print(f"✅ Daily Spark rows used for modelling: {df.count():,}")
 
 #%%
 # Distributed Window Functions for Lag, Rolling Statistics, and Target Creation
 time_window = Window.orderBy("DateTime")
 rolling_5 = time_window.rowsBetween(-4, 0)
-rolling_15 = time_window.rowsBetween(-14, 0)
+rolling_20 = time_window.rowsBetween(-19, 0)
 rolling_60 = time_window.rowsBetween(-59, 0)
 
 features_df = (
@@ -268,16 +338,16 @@ features_df = (
     .withColumn("Lag_5_Close", lag("Close", 5).over(time_window))
     .withColumn("Lag_10_Close", lag("Close", 10).over(time_window))
     .withColumn(
-        "Return_1m",
+        "Daily_Return",
         when(col("Lag_1_Close") != 0, (col("Close") - col("Lag_1_Close")) / col("Lag_1_Close")).otherwise(0.0),
     )
-    .withColumn("Lag_1_Return", lag("Return_1m", 1).over(time_window))
-    .withColumn("Lag_2_Return", lag("Return_1m", 2).over(time_window))
+    .withColumn("Lag_1_Return", lag("Daily_Return", 1).over(time_window))
+    .withColumn("Lag_2_Return", lag("Daily_Return", 2).over(time_window))
     .withColumn("RollingAvg_5", avg("Close").over(rolling_5))
-    .withColumn("RollingAvg_15", avg("Close").over(rolling_15))
+    .withColumn("RollingAvg_20", avg("Close").over(rolling_20))
     .withColumn("RollingAvg_60", avg("Close").over(rolling_60))
-    .withColumn("RollingStd_15", stddev("Close").over(rolling_15))
-    .withColumn("RollingVolume_15", avg("Volume").over(rolling_15))
+    .withColumn("RollingStd_20", stddev("Close").over(rolling_20))
+    .withColumn("RollingVolume_20", avg("Volume").over(rolling_20))
     .withColumn("Price_Range", col("High") - col("Low"))
     .withColumn(
         "Price_Range_Pct",
@@ -285,25 +355,24 @@ features_df = (
     )
     .withColumn("Month", month("DateTime"))
     .withColumn("DayOfWeek", dayofweek("DateTime"))
-    .withColumn("Hour", hour("DateTime"))
-    .withColumn("Minute", minute("DateTime"))
-    # ML TARGET: predict the next one-minute closing price.
+    # ML TARGET: predict the next daily closing price.
     .withColumn("Target_Next_Close", lead("Close", FORECAST_HORIZON).over(time_window))
     .withColumn(
         "Target_Next_Return",
         when(col("Close") != 0, (col("Target_Next_Close") - col("Close")) / col("Close")).otherwise(0.0),
     )
     .dropna()
+    .cache()
 )
 
-print("✅ Bitcoin time-series feature engineering complete. Preview:")
+print("✅ Bitcoin daily time-series feature engineering complete. Preview:")
 features_df.select(
     "DateTime",
     "Close",
-    "Return_1m",
+    "Daily_Return",
     "Lag_1_Return",
-    "RollingAvg_15",
-    "RollingStd_15",
+    "RollingAvg_20",
+    "RollingStd_20",
     "Target_Next_Close",
 ).show(5, truncate=False)
 
@@ -311,15 +380,17 @@ features_df.select(
 # Time-based Train/Test Split
 # The earliest 80% of rows are used for training; the latest 20% are held out for
 # testing. This avoids data leakage from the future into the past.
-features_df = features_df.withColumn("row_num", row_number().over(time_window))
+features_df = features_df.withColumn("row_num", row_number().over(time_window)).cache()
 total_rows = features_df.count()
 split_index = int(total_rows * 0.8)
 
-train_df = features_df.filter(col("row_num") <= split_index)
-test_df = features_df.filter(col("row_num") > split_index)
+train_df = features_df.filter(col("row_num") <= split_index).cache()
+test_df = features_df.filter(col("row_num") > split_index).cache()
 
-print(f"🎓 Training Data: {train_df.count():,} rows (earlier BTC history)")
-print(f"🧪 Testing Data: {test_df.count():,} rows (later BTC history)")
+# Avoid repeated count actions over the same windowed pipeline. These counts are
+# known from the row-number split.
+print(f"🎓 Training Data: {split_index:,} rows (earlier BTC history)")
+print(f"🧪 Testing Data: {total_rows - split_index:,} rows (later BTC history)")
 
 #%%
 # Build Machine Learning Pipelines
@@ -335,18 +406,16 @@ feature_cols = [
     "Lag_2_Close",
     "Lag_5_Close",
     "Lag_10_Close",
-    "Return_1m",
+    "Daily_Return",
     "Lag_1_Return",
     "Lag_2_Return",
     "RollingAvg_5",
-    "RollingAvg_15",
+    "RollingAvg_20",
     "RollingAvg_60",
-    "RollingStd_15",
-    "RollingVolume_15",
+    "RollingStd_20",
+    "RollingVolume_20",
     "Month",
     "DayOfWeek",
-    "Hour",
-    "Minute",
 ]
 
 assembler = VectorAssembler(inputCols=feature_cols, outputCol="raw_features")
@@ -378,11 +447,11 @@ print("✅ Bitcoin forecasting ML pipelines constructed.")
 # Train Models
 print("🏋️ Training Linear Regression Model...")
 lr_model = lr_pipeline.fit(train_df)
-lr_predictions = lr_model.transform(test_df)
+lr_predictions = lr_model.transform(test_df).cache()
 
 print("🌲 Training Gradient-Boosted Trees Model...")
 gbt_model = gbt_pipeline.fit(train_df)
-gbt_predictions = gbt_model.transform(test_df)
+gbt_predictions = gbt_model.transform(test_df).cache()
 print("✅ Distributed training complete.")
 
 #%%
@@ -432,11 +501,11 @@ print("\n📊 Model Evaluation Results:")
 print(results.to_string(index=False))
 
 #%%
-# Visualise Predictions on the Last 500 Test Minutes
+# Visualise Predictions on the Last 120 Test Days
 plot_rows = (
     gbt_predictions.select("DateTime", "Close", "Target_Next_Close", "gbt_prediction")
     .orderBy("DateTime")
-    .tail(500)
+    .tail(120)
 )
 plot_pdf = pd.DataFrame(plot_rows, columns=["DateTime", "Close", "Actual_Next_Close", "Predicted_Next_Close"])
 plot_pdf["DateTime"] = pd.to_datetime(plot_pdf["DateTime"])
@@ -444,15 +513,14 @@ plot_pdf["DateTime"] = pd.to_datetime(plot_pdf["DateTime"])
 plt.figure(figsize=(16, 6))
 plt.plot(plot_pdf["DateTime"], plot_pdf["Actual_Next_Close"], label="Actual Next Close", alpha=0.7)
 plt.plot(plot_pdf["DateTime"], plot_pdf["Predicted_Next_Close"], label="GBT Predicted Next Close", linewidth=2)
-plt.title("GBT Model: Actual vs. Predicted BTC Next-Minute Close", fontsize=16, fontweight="bold")
-plt.xlabel("DateTime")
+plt.title("GBT Model: Actual vs. Predicted BTC Next-Day Close", fontsize=16, fontweight="bold")
+plt.xlabel("Date")
 plt.ylabel("BTC Price (USD)")
 plt.legend(loc="upper left")
 save_current_plot("btc_predictions.png")
 
 #%%
 # CELL 7.1 — Convert Recent Spark Predictions to Pandas for Dashboard-style Visualisation
-# Only the most recent rows are converted so the dashboard remains responsive.
 dashboard_rows = (
     gbt_predictions.select(
         "DateTime",
@@ -462,10 +530,10 @@ dashboard_rows = (
         "gbt_prediction",
         "Volume",
         "Price_Range",
-        "RollingStd_15",
+        "RollingStd_20",
     )
     .orderBy(col("DateTime").desc())
-    .limit(5_000)
+    .limit(365)
 )
 
 dashboard_df = dashboard_rows.toPandas()
@@ -487,18 +555,18 @@ latest_prediction = dashboard_df["gbt_prediction"].iloc[-1]
 print("\n📌 Dashboard KPIs")
 print(f"- Dashboard records analysed: {total_dashboard_rows:,}")
 print(f"- Latest BTC closing price: ${latest_close:,.2f}")
-print(f"- Latest predicted next-minute close: ${latest_prediction:,.2f}")
-print(f"- Average actual next-minute return: {avg_actual_return:.6f}")
+print(f"- Latest predicted next-day close: ${latest_prediction:,.2f}")
+print(f"- Average actual next-day return: {avg_actual_return:.6f}")
 print(f"- Average predicted close: ${avg_predicted_close:,.2f}")
-print(f"- Average one-minute trading volume: {avg_volume:,.4f}")
+print(f"- Average daily trading volume: {avg_volume:,.4f}")
 
 #%%
 # CELL 7.3 — Dashboard Time-series: Actual vs Predicted Next Close
 plt.figure(figsize=(16, 6))
 plt.plot(dashboard_df["DateTime"], dashboard_df["Target_Next_Close"], label="Actual Next Close")
 plt.plot(dashboard_df["DateTime"], dashboard_df["gbt_prediction"], label="Predicted Next Close")
-plt.title("Dashboard View: BTC Actual vs Predicted Next-Minute Close")
-plt.xlabel("DateTime")
+plt.title("Dashboard View: BTC Actual vs Predicted Next-Day Close")
+plt.xlabel("Date")
 plt.ylabel("BTC Price (USD)")
 plt.legend()
 plt.grid(True)
@@ -506,14 +574,14 @@ save_current_plot("btc_dashboard_actual_vs_predicted.png")
 
 #%%
 # CELL 7.4 — Rolling Behaviour Dashboard
-dashboard_df["Rolling_Actual_60"] = dashboard_df["Target_Next_Close"].rolling(window=60).mean()
-dashboard_df["Rolling_Pred_60"] = dashboard_df["gbt_prediction"].rolling(window=60).mean()
+dashboard_df["Rolling_Actual_30"] = dashboard_df["Target_Next_Close"].rolling(window=30).mean()
+dashboard_df["Rolling_Pred_30"] = dashboard_df["gbt_prediction"].rolling(window=30).mean()
 
 plt.figure(figsize=(16, 6))
-plt.plot(dashboard_df["DateTime"], dashboard_df["Rolling_Actual_60"], label="60-Min Rolling Actual Close")
-plt.plot(dashboard_df["DateTime"], dashboard_df["Rolling_Pred_60"], label="60-Min Rolling Predicted Close")
+plt.plot(dashboard_df["DateTime"], dashboard_df["Rolling_Actual_30"], label="30-Day Rolling Actual Close")
+plt.plot(dashboard_df["DateTime"], dashboard_df["Rolling_Pred_30"], label="30-Day Rolling Predicted Close")
 plt.title("Dashboard View: Rolling BTC Forecast Signals")
-plt.xlabel("DateTime")
+plt.xlabel("Date")
 plt.ylabel("BTC Price (USD)")
 plt.legend()
 plt.grid(True)
@@ -527,16 +595,16 @@ returns_std = dashboard_df["Target_Next_Return"].std()
 dashboard_df["Return_ZScore"] = (dashboard_df["Target_Next_Return"] - returns_mean) / returns_std
 anomalies_df = dashboard_df[dashboard_df["Return_ZScore"].abs() > 3].copy()
 
-print(f"Number of anomalous recent one-minute return rows detected: {len(anomalies_df)}")
+print(f"Number of anomalous recent daily return rows detected: {len(anomalies_df)}")
 print(anomalies_df[["DateTime", "Target_Next_Return", "Return_ZScore"]].head(10))
 
 #%%
 # CELL 7.6 — Visual Anomaly Dashboard
 plt.figure(figsize=(16, 6))
-plt.plot(dashboard_df["DateTime"], dashboard_df["Target_Next_Return"], label="Actual Next-Minute Return")
+plt.plot(dashboard_df["DateTime"], dashboard_df["Target_Next_Return"], label="Actual Next-Day Return")
 plt.scatter(anomalies_df["DateTime"], anomalies_df["Target_Next_Return"], label="Anomaly")
 plt.title("Dashboard View: Bitcoin Return Anomalies")
-plt.xlabel("DateTime")
+plt.xlabel("Date")
 plt.ylabel("Return")
 plt.legend()
 plt.grid(True)
@@ -551,7 +619,7 @@ try:
         dashboard_df,
         x="DateTime",
         y=["Target_Next_Close", "gbt_prediction"],
-        title="Interactive Dashboard: BTC Actual vs Predicted Next-Minute Close",
+        title="Interactive Dashboard: BTC Actual vs Predicted Next-Day Close",
     )
     fig.show()
 except ImportError:
