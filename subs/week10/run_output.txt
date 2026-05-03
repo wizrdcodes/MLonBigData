@@ -1,0 +1,79 @@
+/Users/wizrdm/PycharmProjects/MLonBigData/.venv/bin/python /Users/wizrdm/PycharmProjects/MLonBigData/subs/week10/Week10Portfolio.py
+Daily BTC summary loaded: 5,237 days. Range: 2012-01-01 to 2026-05-03
+        Date  Open  High  ...  Daily_Return  Price_Range  Price_Range_Pct
+0 2012-01-01  4.58  4.84  ...           NaN         0.26         0.056769
+1 2012-01-02  4.84  5.00  ...      3.305785         0.16         0.033058
+2 2012-01-03  5.00  5.32  ...      5.800000         0.32         0.064000
+3 2012-01-04  5.29  5.57  ...      5.293006         0.64         0.120983
+4 2012-01-05  5.57  6.46  ...     15.260323         0.89         0.159785
+
+[5 rows x 9 columns]
+WARNING: Using incubator modules: jdk.incubator.vector
+Using Spark's default log4j profile: org/apache/spark/log4j2-defaults.properties
+Setting default log level to "WARN".
+To adjust logging level use sc.setLogLevel(newLevel). For SparkR, use setLogLevel(newLevel).
+26/05/03 14:15:50 WARN NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable
+Raw Spark schema:
+root
+ |-- Timestamp: double (nullable = true)
+ |-- Open: double (nullable = true)
+ |-- High: double (nullable = true)
+ |-- Low: double (nullable = true)
+ |-- Close: double (nullable = true)
+ |-- Volume: double (nullable = true)
+
+Cleaned daily Spark DataFrame preview:
++----------+----+----+----+-----+------------------+-------------------+
+|Date      |Open|High|Low |Close|Volume            |DateTime           |
++----------+----+----+----+-----+------------------+-------------------+
+|2012-01-01|4.58|4.84|4.58|4.84 |10.0              |2012-01-01 00:00:00|
+|2012-01-02|4.84|5.0 |4.84|5.0  |10.1              |2012-01-02 00:00:00|
+|2012-01-03|5.0 |5.32|5.0 |5.29 |107.08528091999999|2012-01-03 00:00:00|
+|2012-01-04|5.29|5.57|4.93|5.57 |107.23326023      |2012-01-04 00:00:00|
+|2012-01-05|5.57|6.46|5.57|6.42 |70.32874237000001 |2012-01-05 00:00:00|
++----------+----+----+----+-----+------------------+-------------------+
+only showing top 5 rows
+Daily Spark rows used for modelling: 5,237
+Bitcoin daily time-series feature engineering preview:
++-------------------+-----+---------------------+---------------------+-----------------+------------------+-----------------+
+|DateTime           |Close|Daily_Return         |Lag_1_Return         |RollingAvg_20    |RollingStd_20     |Target_Next_Close|
++-------------------+-----+---------------------+---------------------+-----------------+------------------+-----------------+
+|2012-01-11 00:00:00|7.0  |-0.014084507042253471|0.09567901234567888  |6.163636363636362|0.8346768563614634|6.51             |
+|2012-01-12 00:00:00|6.51 |-0.07000000000000003 |-0.014084507042253471|6.192499999999999|0.8020896005264796|6.9              |
+|2012-01-13 00:00:00|6.9  |0.059907834101382576 |-0.07000000000000003 |6.246923076923077|0.7926157603717856|6.4              |
+|2012-01-14 00:00:00|6.4  |-0.07246376811594203 |0.059907834101382576 |6.257857142857143|0.7626187531377411|7.15             |
+|2012-01-15 00:00:00|7.15 |0.1171875            |-0.07246376811594203 |6.317333333333334|0.7701341874418164|7.1              |
++-------------------+-----+---------------------+---------------------+-----------------+------------------+-----------------+
+only showing top 5 rows
+Training Data: 4,180 rows (earlier BTC history)
+Testing Data: 1,046 rows (later BTC history)
+Training Linear Regression Model...
+Training Gradient-Boosted Trees Model...
+
+Model Evaluation Results:
+                     Model   RMSE_USD    MAE_USD      R2  Directional Accuracy (%)
+Linear Regression (Scaled)  1810.3844  1252.4576  0.9956                     50.57
+    Gradient-Boosted Trees 27589.5105 19890.7279 -0.0127                     50.96
+Dashboard Data Shape: (365, 8)
+    DateTime    Close  ...  Price_Range  RollingStd_20
+0 2025-05-03  96193.0  ...       1053.0    5036.332401
+1 2025-05-04  95029.0  ...       1535.0    4893.511591
+2 2025-05-05  95047.0  ...       1648.0    4627.022520
+3 2025-05-06  96269.0  ...       2904.0    4380.430114
+4 2025-05-07  97275.0  ...       1894.0    4106.334825
+
+[5 rows x 8 columns]
+
+Dashboard KPIs
+- Dashboard records analysed: 365
+- Latest BTC closing price: $78,832.00
+- Latest predicted next-day close: $59,830.00
+- Average actual next-day return: -0.000307
+- Average predicted close: $60,037.81
+- Average daily trading volume: 2,166.7133
+Number of anomalous recent daily return rows detected: 2
+      DateTime  Target_Next_Return  Return_ZScore
+277 2026-02-04           -0.139795      -6.286277
+278 2026-02-05            0.123195       5.565858
+
+Process finished with exit code 0

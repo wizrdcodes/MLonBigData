@@ -9,7 +9,7 @@ import io
 import contextlib
 
 # Change week number - remember to put plots in outputs
-DEFAULT_WEEK = 9
+DEFAULT_WEEK = 10
 STUDENT_HTML_NAME = "09_AlexanderMurray"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
