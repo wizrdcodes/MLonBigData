@@ -21,33 +21,51 @@
 # assessment is to evaluate your ability to apply distributed machine learning
 # techniques in PySpark and adapt a forecasting pipeline to a new financial
 # dataset in a real-world fintech scenario.
+#
 # Dataset Description
-# The Bitcoin Historical Data dataset 1 contains time-series financial data,
-# including attributes such as Timestamp, Open, High, Low, Close, Volume, and
-# Weighted Price. The Close price is used as the target variable for forecasting
-# future values. This is a time-series forecasting problem where historical
-# cryptocurrency prices are used to predict future price movements. The dataset
-# is chronologically ordered and requires time-aware processing to ensure correct
-# modelling and avoid data leakage.
+# The Bitcoin Historical Data dataset contains one-minute cryptocurrency price
+# records with Timestamp, Open, High, Low, Close, and Volume columns. The Close
+# price is used as the main target variable for forecasting future values. This
+# is a time-series forecasting problem where historical cryptocurrency prices are
+# used to predict future price movements. The dataset is chronologically ordered
+# and requires time-aware processing to ensure correct modelling and avoid data
+# leakage.
+# ---------------------------------------------------------------------------------
 
 # Core Python libraries
 import os
 import warnings
+from pathlib import Path
+
 warnings.filterwarnings("ignore")
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-import matplotlib.dates as mdates
 
 # PySpark imports
 from pyspark.sql import SparkSession, Window
-from pyspark.sql.functions import col, to_date, lag, lead, avg, stddev, row_number, month, dayofweek, signum
+from pyspark.sql.functions import (
+    avg,
+    col,
+    dayofweek,
+    from_unixtime,
+    hour,
+    lag,
+    lead,
+    minute,
+    month,
+    row_number,
+    signum,
+    stddev,
+    to_date,
+    when,
+)
 from pyspark.ml import Pipeline
-from pyspark.ml.feature import VectorAssembler, StandardScaler
-from pyspark.ml.regression import LinearRegression, GBTRegressor
 from pyspark.ml.evaluation import RegressionEvaluator
+from pyspark.ml.feature import StandardScaler, VectorAssembler
+from pyspark.ml.regression import GBTRegressor, LinearRegression
 
 # Plotting aesthetics
 sns.set_theme(style="whitegrid", palette="muted")
@@ -56,111 +74,243 @@ plt.rcParams["figure.figsize"] = (14, 6)
 print("✅ Setup complete. Libraries imported.")
 
 #%%
-# from google.colab import files
-default_path = '/Users/wizrdm/Desktop/UEL/Machine Learning on Big Data/btcusd_1-min_data.csv'
+# Local CSV path on my Mac.
+default_path = "/Users/wizrdm/Desktop/UEL/Machine Learning on Big Data/btcusd_1-min_data.csv"
 
 if os.path.exists(default_path):
     data_file = default_path
-    print("File found locally.")
+    print("✅ Bitcoin CSV file found locally.")
 else:
-    print("Please upload aapl_stock_data.csv")
-    # uploaded = files.upload()
-    # csv_files = [f for f in uploaded.keys() if f.lower().endswith(".csv")]
-    # data_file = f"/content/{csv_files[0]}"
+    raise FileNotFoundError(
+        "Bitcoin CSV was not found at default_path. "
+        "Check that btcusd_1-min_data.csv is stored at the path above."
+    )
 
-# Load to Pandas for EDA
-pdf = pd.read_csv(data_file)
-pdf["Date"] = pd.to_datetime(pdf["Date"])
-pdf = pdf.sort_values("Date").reset_index(drop=True)
-print(f"✅ Data loaded: {pdf.shape[0]:,} rows. Range: {pdf['Date'].min().date()} to {pdf['Date'].max().date()}")
+# Save plots in the same project output style used by previous portfolio weeks.
+try:
+    PROJECT_ROOT = Path(__file__).resolve().parents[2]
+except NameError:
+    PROJECT_ROOT = Path.cwd()
+
+PLOTS_DIR = PROJECT_ROOT / "outputs" / "week10" / "plots"
+PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+
+REQUIRED_COLUMNS = ["Timestamp", "Open", "High", "Low", "Close", "Volume"]
+FORECAST_HORIZON = 1  # Predict the next one-minute close price.
+
+
+def save_current_plot(filename: str) -> None:
+    """Save the active matplotlib figure to the Week 10 plots folder."""
+    plot_path = PLOTS_DIR / filename
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=150, bbox_inches="tight")
+    print(f"Saved plot: {plot_path}")
+    plt.show()
+
+
+print(f"📁 Plots will be saved to: {PLOTS_DIR}")
 
 #%%
-# 2.1 Dual-Axis Plot: Historical Price & Trading Volume
+# Load a daily Pandas summary for readable EDA plots.
+# The raw dataset is one-minute data with millions of rows, so plotting every row
+# directly would be slow and visually cluttered. Chunked daily aggregation keeps
+# the EDA memory-safe while still representing the full time range.
+def load_daily_btc_summary(csv_path: str, chunk_size: int = 1_000_000) -> pd.DataFrame:
+    daily_frames = []
+
+    for chunk in pd.read_csv(csv_path, usecols=REQUIRED_COLUMNS, chunksize=chunk_size):
+        chunk["DateTime"] = pd.to_datetime(chunk["Timestamp"], unit="s")
+        chunk["Date"] = chunk["DateTime"].dt.date
+
+        daily_chunk = (
+            chunk.groupby("Date")
+            .agg(
+                Open=("Open", "first"),
+                High=("High", "max"),
+                Low=("Low", "min"),
+                Close=("Close", "last"),
+                Volume=("Volume", "sum"),
+            )
+            .reset_index()
+        )
+        daily_frames.append(daily_chunk)
+
+    daily_pdf = pd.concat(daily_frames, ignore_index=True).sort_values("Date")
+
+    # Regroup because a single calendar day may be split across two chunks.
+    daily_pdf = (
+        daily_pdf.groupby("Date")
+        .agg(
+            Open=("Open", "first"),
+            High=("High", "max"),
+            Low=("Low", "min"),
+            Close=("Close", "last"),
+            Volume=("Volume", "sum"),
+        )
+        .reset_index()
+    )
+
+    daily_pdf["Date"] = pd.to_datetime(daily_pdf["Date"])
+    daily_pdf["Daily_Return"] = daily_pdf["Close"].pct_change() * 100
+    daily_pdf["Price_Range"] = daily_pdf["High"] - daily_pdf["Low"]
+    daily_pdf["Price_Range_Pct"] = np.where(
+        daily_pdf["Open"] != 0,
+        (daily_pdf["High"] - daily_pdf["Low"]) / daily_pdf["Open"],
+        0,
+    )
+    return daily_pdf
+
+
+pdf = load_daily_btc_summary(data_file)
+
+print(
+    f"✅ Daily BTC summary loaded: {pdf.shape[0]:,} days. "
+    f"Range: {pdf['Date'].min().date()} to {pdf['Date'].max().date()}"
+)
+print(pdf.head())
+
+#%%
+# 2.1 Dual-Axis Plot: Bitcoin Daily Close Price & Trading Volume
 fig, ax1 = plt.subplots(figsize=(16, 7))
 
-color = 'tab:blue'
-ax1.set_xlabel('Date', fontweight='bold')
-ax1.set_ylabel('AAPL Close Price (USD)', color=color, fontweight='bold')
-ax1.plot(pdf['Date'], pdf['Close'], color=color, linewidth=1.5)
-ax1.tick_params(axis='y', labelcolor=color)
+color = "tab:blue"
+ax1.set_xlabel("Date", fontweight="bold")
+ax1.set_ylabel("BTC Close Price (USD)", color=color, fontweight="bold")
+ax1.plot(pdf["Date"], pdf["Close"], color=color, linewidth=1.5)
+ax1.tick_params(axis="y", labelcolor=color)
 
-# Instantiate a second axes that shares the same x-axis for Volume
 ax2 = ax1.twinx()
-color = 'tab:grey'
-ax2.set_ylabel('Trading Volume (Hundreds of Millions)', color=color, fontweight='bold')
-ax2.fill_between(pdf['Date'], pdf['Volume'], color=color, alpha=0.3)
-ax2.tick_params(axis='y', labelcolor=color)
+color = "tab:grey"
+ax2.set_ylabel("Daily Trading Volume", color=color, fontweight="bold")
+ax2.fill_between(pdf["Date"], pdf["Volume"], color=color, alpha=0.3)
+ax2.tick_params(axis="y", labelcolor=color)
 
-plt.title('AAPL Price History vs. Trading Volume (1999 - 2024)', fontsize=16, fontweight='bold')
-fig.tight_layout()
-plt.savefig('aapl_price_volume.png')
-plt.show()
+plt.title("Bitcoin Price History vs. Trading Volume", fontsize=16, fontweight="bold")
+save_current_plot("btc_price_volume.png")
 
 #%%
-# 2.2 Distribution of Daily Returns (Checking for Fat Tails / Kurtosis)
-pdf['Daily_Return'] = pdf['Close'].pct_change() * 100 # Converted to percentage
-
+# 2.2 Distribution of Daily Returns
 plt.figure(figsize=(14, 6))
-sns.histplot(pdf['Daily_Return'].dropna(), bins=100, kde=True, color="purple")
-plt.title("Distribution of AAPL Daily Returns (%)", fontsize=16, fontweight='bold')
+sns.histplot(pdf["Daily_Return"].replace([np.inf, -np.inf], np.nan).dropna(), bins=100, kde=True)
+plt.title("Distribution of Bitcoin Daily Returns (%)", fontsize=16, fontweight="bold")
 plt.xlabel("Daily Return (%)")
 plt.ylabel("Frequency")
-plt.axvline(0, color='black', linestyle='--')
+plt.axvline(0, color="black", linestyle="--")
 
-# Annotating standard deviations to show market extremes
-std_dev = pdf['Daily_Return'].std()
-plt.axvline(std_dev * 3, color='red', linestyle=':', label='3 Std Dev (Extreme Gain)')
-plt.axvline(-std_dev * 3, color='red', linestyle=':', label='3 Std Dev (Extreme Loss)')
+std_dev = pdf["Daily_Return"].std()
+plt.axvline(std_dev * 3, color="red", linestyle=":", label="3 Std Dev (Extreme Gain)")
+plt.axvline(-std_dev * 3, color="red", linestyle=":", label="3 Std Dev (Extreme Loss)")
 plt.legend()
-plt.savefig('aapl_returns_distribution.png')
-plt.show()
+save_current_plot("btc_returns_distribution.png")
 
 #%%
 # 2.3 Feature Correlation Heatmap
-# This helps us spot multicollinearity. Notice how Open, High, Low, and Close are perfectly correlated.
 plt.figure(figsize=(10, 8))
-corr_matrix = pdf[['Open', 'High', 'Low', 'Close', 'Volume', 'PERatio', 'EPS', 'MarketCap', 'Daily_Return']].corr()
-sns.heatmap(corr_matrix, annot=True, cmap="vlag", center=0, fmt=".2f", linewidths=0.5, cbar_kws={"shrink": 0.8})
-plt.title("Financial Feature Correlation Heatmap", fontsize=16, fontweight='bold')
-plt.savefig('aapl_correlation.png')
-plt.show()
+corr_cols = [
+    "Open",
+    "High",
+    "Low",
+    "Close",
+    "Volume",
+    "Daily_Return",
+    "Price_Range",
+    "Price_Range_Pct",
+]
+corr_matrix = pdf[corr_cols].corr()
+sns.heatmap(
+    corr_matrix,
+    annot=True,
+    cmap="vlag",
+    center=0,
+    fmt=".2f",
+    linewidths=0.5,
+    cbar_kws={"shrink": 0.8},
+)
+plt.title("Bitcoin Feature Correlation Heatmap", fontsize=16, fontweight="bold")
+save_current_plot("btc_correlation.png")
 
 #%%
-spark = SparkSession.builder.appName("MSc_FinTech_Forecasting_Advanced").getOrCreate()
+# Spark Data Loading and Preprocessing
+spark = SparkSession.builder.appName("Week10_Bitcoin_Forecasting").getOrCreate()
 spark_df = spark.read.csv(data_file, header=True, inferSchema=True)
 
-df = (
-    spark_df.select(
-        to_date(col("Date"), "yyyy-MM-dd").alias("Date"),
-        col("Close").cast("double"), col("Volume").cast("double"),
-        col("PERatio").cast("double"), col("EPS").cast("double"),
-        col("MarketCap").cast("double")
-    ).dropna().orderBy("Date")
+print("✅ Raw Spark schema:")
+spark_df.printSchema()
+
+parsed_df = spark_df.select(
+    from_unixtime(col("Timestamp").cast("long")).cast("timestamp").alias("DateTime"),
+    col("Open").cast("double"),
+    col("High").cast("double"),
+    col("Low").cast("double"),
+    col("Close").cast("double"),
+    col("Volume").cast("double"),
 )
 
+df = (
+    parsed_df.withColumn("Date", to_date(col("DateTime")))
+    .dropna(subset=["DateTime", "Open", "High", "Low", "Close", "Volume"])
+    .orderBy("DateTime")
+)
+
+print("✅ Cleaned Spark DataFrame preview:")
+df.show(5, truncate=False)
+
 #%%
-# Distributed Window Functions for Lag & Volatility Features
-time_window = Window.orderBy("Date")
+# Distributed Window Functions for Lag, Rolling Statistics, and Target Creation
+time_window = Window.orderBy("DateTime")
 rolling_5 = time_window.rowsBetween(-4, 0)
-rolling_20 = time_window.rowsBetween(-19, 0) # Monthly moving averages
+rolling_15 = time_window.rowsBetween(-14, 0)
+rolling_60 = time_window.rowsBetween(-59, 0)
 
 features_df = (
-    df.withColumn("Daily_Return", (col("Close") - lag("Close", 1).over(time_window)) / lag("Close", 1).over(time_window))
-      .withColumn("Lag_1_Return", lag("Daily_Return", 1).over(time_window))
-      .withColumn("Lag_2_Return", lag("Daily_Return", 2).over(time_window))
-      .withColumn("RollingStd_5", stddev("Daily_Return").over(rolling_5)) # Short-term Volatility
-      .withColumn("RollingStd_20", stddev("Daily_Return").over(rolling_20)) # Long-term Volatility
-      .withColumn("Month", month("Date"))
-      .withColumn("DayOfWeek", dayofweek("Date"))
-      # OUR ML TARGET: Predict tomorrow's return
-      .withColumn("Target_Next_Return", lead("Daily_Return", 1).over(time_window))
-      .dropna()
+    df.withColumn("Lag_1_Close", lag("Close", 1).over(time_window))
+    .withColumn("Lag_2_Close", lag("Close", 2).over(time_window))
+    .withColumn("Lag_5_Close", lag("Close", 5).over(time_window))
+    .withColumn("Lag_10_Close", lag("Close", 10).over(time_window))
+    .withColumn(
+        "Return_1m",
+        when(col("Lag_1_Close") != 0, (col("Close") - col("Lag_1_Close")) / col("Lag_1_Close")).otherwise(0.0),
+    )
+    .withColumn("Lag_1_Return", lag("Return_1m", 1).over(time_window))
+    .withColumn("Lag_2_Return", lag("Return_1m", 2).over(time_window))
+    .withColumn("RollingAvg_5", avg("Close").over(rolling_5))
+    .withColumn("RollingAvg_15", avg("Close").over(rolling_15))
+    .withColumn("RollingAvg_60", avg("Close").over(rolling_60))
+    .withColumn("RollingStd_15", stddev("Close").over(rolling_15))
+    .withColumn("RollingVolume_15", avg("Volume").over(rolling_15))
+    .withColumn("Price_Range", col("High") - col("Low"))
+    .withColumn(
+        "Price_Range_Pct",
+        when(col("Open") != 0, (col("High") - col("Low")) / col("Open")).otherwise(0.0),
+    )
+    .withColumn("Month", month("DateTime"))
+    .withColumn("DayOfWeek", dayofweek("DateTime"))
+    .withColumn("Hour", hour("DateTime"))
+    .withColumn("Minute", minute("DateTime"))
+    # ML TARGET: predict the next one-minute closing price.
+    .withColumn("Target_Next_Close", lead("Close", FORECAST_HORIZON).over(time_window))
+    .withColumn(
+        "Target_Next_Return",
+        when(col("Close") != 0, (col("Target_Next_Close") - col("Close")) / col("Close")).otherwise(0.0),
+    )
+    .dropna()
 )
 
-print("✅ Stationary Feature Engineering Complete. Preview:")
-features_df.select("Date", "Close", "Daily_Return", "Lag_1_Return", "RollingStd_5", "Target_Next_Return").show(5)
+print("✅ Bitcoin time-series feature engineering complete. Preview:")
+features_df.select(
+    "DateTime",
+    "Close",
+    "Return_1m",
+    "Lag_1_Return",
+    "RollingAvg_15",
+    "RollingStd_15",
+    "Target_Next_Close",
+).show(5, truncate=False)
 
 #%%
+# Time-based Train/Test Split
+# The earliest 80% of rows are used for training; the latest 20% are held out for
+# testing. This avoids data leakage from the future into the past.
 features_df = features_df.withColumn("row_num", row_number().over(time_window))
 total_rows = features_df.count()
 split_index = int(total_rows * 0.8)
@@ -168,179 +318,244 @@ split_index = int(total_rows * 0.8)
 train_df = features_df.filter(col("row_num") <= split_index)
 test_df = features_df.filter(col("row_num") > split_index)
 
-print(f"🎓 Training Data: {train_df.count()} rows (Past)")
-print(f"🧪 Testing Data: {test_df.count()} rows (Future)")
+print(f"🎓 Training Data: {train_df.count():,} rows (earlier BTC history)")
+print(f"🧪 Testing Data: {test_df.count():,} rows (later BTC history)")
 
 #%%
+# Build Machine Learning Pipelines
 feature_cols = [
-    "Volume", "PERatio", "EPS", "MarketCap",
-    "Lag_1_Return", "Lag_2_Return",
-    "RollingStd_5", "RollingStd_20", "Month", "DayOfWeek"
+    "Open",
+    "High",
+    "Low",
+    "Close",
+    "Volume",
+    "Price_Range",
+    "Price_Range_Pct",
+    "Lag_1_Close",
+    "Lag_2_Close",
+    "Lag_5_Close",
+    "Lag_10_Close",
+    "Return_1m",
+    "Lag_1_Return",
+    "Lag_2_Return",
+    "RollingAvg_5",
+    "RollingAvg_15",
+    "RollingAvg_60",
+    "RollingStd_15",
+    "RollingVolume_15",
+    "Month",
+    "DayOfWeek",
+    "Hour",
+    "Minute",
 ]
 
-# 1. Pipeline Stages
 assembler = VectorAssembler(inputCols=feature_cols, outputCol="raw_features")
 scaler = StandardScaler(inputCol="raw_features", outputCol="scaled_features", withStd=True, withMean=True)
 
-# 2. Estimators (Models)
-lr = LinearRegression(featuresCol="scaled_features", labelCol="Target_Next_Return", predictionCol="lr_prediction")
-gbt = GBTRegressor(featuresCol="raw_features", labelCol="Target_Next_Return", predictionCol="gbt_prediction", maxIter=40, maxDepth=5)
+lr = LinearRegression(
+    featuresCol="scaled_features",
+    labelCol="Target_Next_Close",
+    predictionCol="lr_prediction",
+    maxIter=20,
+    regParam=0.01,
+)
 
-# 3. Assemble Pipelines
+gbt = GBTRegressor(
+    featuresCol="raw_features",
+    labelCol="Target_Next_Close",
+    predictionCol="gbt_prediction",
+    maxIter=20,
+    maxDepth=5,
+    seed=42,
+)
+
 lr_pipeline = Pipeline(stages=[assembler, scaler, lr])
 gbt_pipeline = Pipeline(stages=[assembler, gbt])
 
-print("✅ ML Pipelines constructed.")
+print("✅ Bitcoin forecasting ML pipelines constructed.")
 
 #%%
+# Train Models
 print("🏋️ Training Linear Regression Model...")
 lr_model = lr_pipeline.fit(train_df)
 lr_predictions = lr_model.transform(test_df)
 
-print("🌲 Training Gradient Boosted Trees Model...")
+print("🌲 Training Gradient-Boosted Trees Model...")
 gbt_model = gbt_pipeline.fit(train_df)
 gbt_predictions = gbt_model.transform(test_df)
-print("✅ Distributed Training complete.")
+print("✅ Distributed training complete.")
 
 #%%
-def evaluate_financial_model(predictions_df, prediction_col, model_name):
-    # Regression Error (RMSE)
-    rmse_eval = RegressionEvaluator(labelCol="Target_Next_Return", predictionCol=prediction_col, metricName="rmse")
-    rmse = rmse_eval.evaluate(predictions_df)
+# Evaluate Models
+def evaluate_financial_model(predictions_df, prediction_col: str, model_name: str) -> dict:
+    rmse_eval = RegressionEvaluator(
+        labelCol="Target_Next_Close", predictionCol=prediction_col, metricName="rmse"
+    )
+    mae_eval = RegressionEvaluator(
+        labelCol="Target_Next_Close", predictionCol=prediction_col, metricName="mae"
+    )
+    r2_eval = RegressionEvaluator(
+        labelCol="Target_Next_Close", predictionCol=prediction_col, metricName="r2"
+    )
 
-    # Directional Accuracy (Did we correctly guess if the return would be positive or negative?)
-    dir_df = predictions_df.withColumn("Actual_Sign", signum(col("Target_Next_Return")))\
-                           .withColumn("Pred_Sign", signum(col(prediction_col)))
+    rmse = rmse_eval.evaluate(predictions_df)
+    mae = mae_eval.evaluate(predictions_df)
+    r2 = r2_eval.evaluate(predictions_df)
+
+    # Directional accuracy checks whether the model predicted the correct price
+    # movement direction compared with the current close price.
+    dir_df = predictions_df.withColumn(
+        "Actual_Sign", signum(col("Target_Next_Close") - col("Close"))
+    ).withColumn("Pred_Sign", signum(col(prediction_col) - col("Close")))
 
     correct = dir_df.filter(col("Actual_Sign") == col("Pred_Sign")).count()
     total = dir_df.count()
-    dir_accuracy = (correct / total) * 100
+    dir_accuracy = (correct / total) * 100 if total else 0
 
-    return {"Model": model_name, "RMSE": round(rmse, 4), "Directional Accuracy (%)": round(dir_accuracy, 2)}
+    return {
+        "Model": model_name,
+        "RMSE_USD": round(float(rmse), 4),
+        "MAE_USD": round(float(mae), 4),
+        "R2": round(float(r2), 4),
+        "Directional Accuracy (%)": round(float(dir_accuracy), 2),
+    }
 
-results = pd.DataFrame([
-    evaluate_financial_model(lr_predictions, "lr_prediction", "Linear Regression (Scaled)"),
-    evaluate_financial_model(gbt_predictions, "gbt_prediction", "Gradient-Boosted Trees"),
-])
-print(results)
+
+results = pd.DataFrame(
+    [
+        evaluate_financial_model(lr_predictions, "lr_prediction", "Linear Regression (Scaled)"),
+        evaluate_financial_model(gbt_predictions, "gbt_prediction", "Gradient-Boosted Trees"),
+    ]
+)
+
+print("\n📊 Model Evaluation Results:")
+print(results.to_string(index=False))
 
 #%%
-# Visualising the Predictions (Last 100 Days for Clarity)
-plot_df = gbt_predictions.select("Date", "Target_Next_Return", "gbt_prediction").tail(100)
-plot_pdf = pd.DataFrame(plot_df, columns=["Date", "Actual_Return", "Predicted_Return"])
+# Visualise Predictions on the Last 500 Test Minutes
+plot_rows = (
+    gbt_predictions.select("DateTime", "Close", "Target_Next_Close", "gbt_prediction")
+    .orderBy("DateTime")
+    .tail(500)
+)
+plot_pdf = pd.DataFrame(plot_rows, columns=["DateTime", "Close", "Actual_Next_Close", "Predicted_Next_Close"])
+plot_pdf["DateTime"] = pd.to_datetime(plot_pdf["DateTime"])
 
 plt.figure(figsize=(16, 6))
-plt.plot(plot_pdf["Date"], plot_pdf["Actual_Return"], label="Actual Return", marker='o', alpha=0.5)
-plt.plot(plot_pdf["Date"], plot_pdf["Predicted_Return"], label="GBT Predicted Return", color='red', linewidth=2)
-plt.axhline(0, color='black', linestyle='-', linewidth=1.5, alpha=0.8)
-plt.fill_between(plot_pdf["Date"], 0, plot_pdf["Predicted_Return"], where=(plot_pdf["Predicted_Return"] > 0), color='green', alpha=0.1, label='Predicted Uptrend')
-plt.fill_between(plot_pdf["Date"], 0, plot_pdf["Predicted_Return"], where=(plot_pdf["Predicted_Return"] < 0), color='red', alpha=0.1, label='Predicted Downtrend')
-plt.title("GBT Model: Actual vs. Predicted Daily Returns (Last 100 Days)", fontsize=16, fontweight='bold')
-plt.ylabel("Daily Return (Decimal)")
+plt.plot(plot_pdf["DateTime"], plot_pdf["Actual_Next_Close"], label="Actual Next Close", alpha=0.7)
+plt.plot(plot_pdf["DateTime"], plot_pdf["Predicted_Next_Close"], label="GBT Predicted Next Close", linewidth=2)
+plt.title("GBT Model: Actual vs. Predicted BTC Next-Minute Close", fontsize=16, fontweight="bold")
+plt.xlabel("DateTime")
+plt.ylabel("BTC Price (USD)")
 plt.legend(loc="upper left")
-plt.savefig('aapl_predictions.png')
-plt.show()
+save_current_plot("btc_predictions.png")
 
 #%%
-# CELL 7.1 — Convert Spark predictions to Pandas for dashboard-style visualisation
-dashboard_df = gbt_predictions.select(
-    "Date",
-    "Close",
-    "Target_Next_Return",
-    "gbt_prediction",
-    "Volume",
-    "PERatio",
-    "EPS",
-    "MarketCap"
-).toPandas()
+# CELL 7.1 — Convert Recent Spark Predictions to Pandas for Dashboard-style Visualisation
+# Only the most recent rows are converted so the dashboard remains responsive.
+dashboard_rows = (
+    gbt_predictions.select(
+        "DateTime",
+        "Close",
+        "Target_Next_Close",
+        "Target_Next_Return",
+        "gbt_prediction",
+        "Volume",
+        "Price_Range",
+        "RollingStd_15",
+    )
+    .orderBy(col("DateTime").desc())
+    .limit(5_000)
+)
 
-dashboard_df["Date"] = pd.to_datetime(dashboard_df["Date"])
-dashboard_df = dashboard_df.sort_values("Date").reset_index(drop=True)
+dashboard_df = dashboard_rows.toPandas()
+dashboard_df["DateTime"] = pd.to_datetime(dashboard_df["DateTime"])
+dashboard_df = dashboard_df.sort_values("DateTime").reset_index(drop=True)
 
 print("Dashboard Data Shape:", dashboard_df.shape)
-dashboard_df.head()
+print(dashboard_df.head())
 
 #%%
 # CELL 7.2 — Dashboard KPIs
-from IPython.display import display, Markdown
-
-total_rows = len(dashboard_df)
+total_dashboard_rows = len(dashboard_df)
 avg_actual_return = dashboard_df["Target_Next_Return"].mean()
-avg_pred_return = dashboard_df["gbt_prediction"].mean()
+avg_predicted_close = dashboard_df["gbt_prediction"].mean()
 avg_volume = dashboard_df["Volume"].mean()
 latest_close = dashboard_df["Close"].iloc[-1]
+latest_prediction = dashboard_df["gbt_prediction"].iloc[-1]
 
-display(Markdown("## 📌 Dashboard KPIs"))
-display(Markdown(f"- Total records analysed: **{total_rows:,}**"))
-display(Markdown(f"- Latest closing price: **{latest_close:,.2f}**"))
-display(Markdown(f"- Average actual next-day return: **{avg_actual_return:.6f}**"))
-display(Markdown(f"- Average predicted next-day return: **{avg_pred_return:.6f}**"))
-display(Markdown(f"- Average trading volume: **{avg_volume:,.0f}**"))
+print("\n📌 Dashboard KPIs")
+print(f"- Dashboard records analysed: {total_dashboard_rows:,}")
+print(f"- Latest BTC closing price: ${latest_close:,.2f}")
+print(f"- Latest predicted next-minute close: ${latest_prediction:,.2f}")
+print(f"- Average actual next-minute return: {avg_actual_return:.6f}")
+print(f"- Average predicted close: ${avg_predicted_close:,.2f}")
+print(f"- Average one-minute trading volume: {avg_volume:,.4f}")
 
 #%%
-# CELL 7.3 — Time-series dashboard: actual vs predicted returns
+# CELL 7.3 — Dashboard Time-series: Actual vs Predicted Next Close
 plt.figure(figsize=(16, 6))
-plt.plot(dashboard_df["Date"], dashboard_df["Target_Next_Return"], label="Actual Return")
-plt.plot(dashboard_df["Date"], dashboard_df["gbt_prediction"], label="Predicted Return")
-plt.title("Dashboard View: Actual vs Predicted Next-Day Returns")
-plt.xlabel("Date")
-plt.ylabel("Return")
+plt.plot(dashboard_df["DateTime"], dashboard_df["Target_Next_Close"], label="Actual Next Close")
+plt.plot(dashboard_df["DateTime"], dashboard_df["gbt_prediction"], label="Predicted Next Close")
+plt.title("Dashboard View: BTC Actual vs Predicted Next-Minute Close")
+plt.xlabel("DateTime")
+plt.ylabel("BTC Price (USD)")
 plt.legend()
 plt.grid(True)
-plt.show()
+save_current_plot("btc_dashboard_actual_vs_predicted.png")
 
 #%%
-# CELL 7.4 — Rolling behaviour dashboard
-dashboard_df["Rolling_Actual_10"] = dashboard_df["Target_Next_Return"].rolling(window=10).mean()
-dashboard_df["Rolling_Pred_10"] = dashboard_df["gbt_prediction"].rolling(window=10).mean()
+# CELL 7.4 — Rolling Behaviour Dashboard
+dashboard_df["Rolling_Actual_60"] = dashboard_df["Target_Next_Close"].rolling(window=60).mean()
+dashboard_df["Rolling_Pred_60"] = dashboard_df["gbt_prediction"].rolling(window=60).mean()
 
 plt.figure(figsize=(16, 6))
-plt.plot(dashboard_df["Date"], dashboard_df["Rolling_Actual_10"], label="10-Day Rolling Actual Return")
-plt.plot(dashboard_df["Date"], dashboard_df["Rolling_Pred_10"], label="10-Day Rolling Predicted Return")
-plt.title("Dashboard View: Rolling Return Signals")
-plt.xlabel("Date")
-plt.ylabel("Rolling Mean Return")
+plt.plot(dashboard_df["DateTime"], dashboard_df["Rolling_Actual_60"], label="60-Min Rolling Actual Close")
+plt.plot(dashboard_df["DateTime"], dashboard_df["Rolling_Pred_60"], label="60-Min Rolling Predicted Close")
+plt.title("Dashboard View: Rolling BTC Forecast Signals")
+plt.xlabel("DateTime")
+plt.ylabel("BTC Price (USD)")
 plt.legend()
 plt.grid(True)
-plt.show()
+save_current_plot("btc_dashboard_rolling_signals.png")
 
 #%%
-# CELL 7.5 — Simple anomaly dashboard using Z-score threshold on returns
+# CELL 7.5 — Simple Anomaly Dashboard Using Z-score Threshold on Returns
 returns_mean = dashboard_df["Target_Next_Return"].mean()
 returns_std = dashboard_df["Target_Next_Return"].std()
 
-dashboard_df["Return_ZScore"] = (
-    (dashboard_df["Target_Next_Return"] - returns_mean) / returns_std
-)
+dashboard_df["Return_ZScore"] = (dashboard_df["Target_Next_Return"] - returns_mean) / returns_std
+anomalies_df = dashboard_df[dashboard_df["Return_ZScore"].abs() > 3].copy()
 
-anomalies_df = dashboard_df[dashboard_df["Return_ZScore"].abs() > 2].copy()
-
-print(f"Number of anomalous return days detected: {len(anomalies_df)}")
-anomalies_df[["Date", "Target_Next_Return", "Return_ZScore"]].head(10)
+print(f"Number of anomalous recent one-minute return rows detected: {len(anomalies_df)}")
+print(anomalies_df[["DateTime", "Target_Next_Return", "Return_ZScore"]].head(10))
 
 #%%
-# CELL 7.6 — Visual anomaly dashboard
+# CELL 7.6 — Visual Anomaly Dashboard
 plt.figure(figsize=(16, 6))
-plt.plot(dashboard_df["Date"], dashboard_df["Target_Next_Return"], label="Actual Return")
-plt.scatter(anomalies_df["Date"], anomalies_df["Target_Next_Return"], label="Anomaly")
-plt.title("Dashboard View: Return Anomalies")
-plt.xlabel("Date")
+plt.plot(dashboard_df["DateTime"], dashboard_df["Target_Next_Return"], label="Actual Next-Minute Return")
+plt.scatter(anomalies_df["DateTime"], anomalies_df["Target_Next_Return"], label="Anomaly")
+plt.title("Dashboard View: Bitcoin Return Anomalies")
+plt.xlabel("DateTime")
 plt.ylabel("Return")
 plt.legend()
 plt.grid(True)
-plt.show()
+save_current_plot("btc_dashboard_return_anomalies.png")
 
 #%%
-# CELL 7.7 — Interactive dashboard chart (Plotly)
-import plotly.express as px
+# CELL 7.7 — Optional Interactive Dashboard Chart (Plotly)
+try:
+    import plotly.express as px
 
-fig = px.line(
-    dashboard_df,
-    x="Date",
-    y=["Target_Next_Return", "gbt_prediction"],
-    title="Interactive Dashboard: Actual vs Predicted Returns"
-)
-fig.show()
+    fig = px.line(
+        dashboard_df,
+        x="DateTime",
+        y=["Target_Next_Close", "gbt_prediction"],
+        title="Interactive Dashboard: BTC Actual vs Predicted Next-Minute Close",
+    )
+    fig.show()
+except ImportError:
+    print("Plotly is not installed, so the optional interactive dashboard was skipped.")
 
 #%%
 # CELL 8.1 — Stop Spark (always run last)
@@ -348,12 +563,14 @@ spark.stop()
 print("✅ Spark session stopped. Lab complete!")
 print("\n📁 Saved output files available in directory:")
 for f in [
-    "aapl_price_volume.png",
-    "aapl_returns_distribution.png",
-    "aapl_correlation.png",
-    "aapl_predictions.png"
+    "btc_price_volume.png",
+    "btc_returns_distribution.png",
+    "btc_correlation.png",
+    "btc_predictions.png",
+    "btc_dashboard_actual_vs_predicted.png",
+    "btc_dashboard_rolling_signals.png",
+    "btc_dashboard_return_anomalies.png",
 ]:
-    if os.path.exists(f):
-        print(f" - {f}")
-
-
+    plot_path = PLOTS_DIR / f
+    if plot_path.exists():
+        print(f" - {plot_path}")
