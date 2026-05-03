@@ -40,13 +40,11 @@ from pathlib import Path
 
 warnings.filterwarnings("ignore")
 
-# Helps avoid Spark's common local hostname warning on macOS.
+# Helps avoid Spark's common local hostname warning
 os.environ.setdefault("SPARK_LOCAL_IP", "127.0.0.1")
-
 
 class WarnLineFilter:
     """File-like stream wrapper that skips console lines containing WARN.
-
     Spark often writes useful results and noisy WARN lines to the console. This
     wrapper keeps the output easier to paste into an HTML/report by filtering
     lines that contain WARN while still allowing ERROR messages through.
@@ -74,7 +72,6 @@ class WarnLineFilter:
     def __getattr__(self, attr):
         return getattr(self.stream, attr)
 
-
 FILTER_WARN_MESSAGES = True
 if FILTER_WARN_MESSAGES:
     sys.stdout = WarnLineFilter(sys.stdout)
@@ -85,7 +82,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# PySpark imports
 from pyspark.sql import SparkSession, Window
 from pyspark.sql.functions import (
     avg,
@@ -118,7 +114,6 @@ plt.rcParams["figure.figsize"] = (14, 6)
 print("✅ Setup complete. Libraries imported.")
 
 #%%
-# Local CSV path on my Mac.
 default_path = "/Users/wizrdm/Desktop/UEL/Machine Learning on Big Data/btcusd_1-min_data.csv"
 
 if os.path.exists(default_path):
@@ -130,7 +125,6 @@ else:
         "Check that btcusd_1-min_data.csv is stored at the path above."
     )
 
-# Save plots in the same project output style used by previous portfolio weeks.
 try:
     PROJECT_ROOT = Path(__file__).resolve().parents[2]
 except NameError:
